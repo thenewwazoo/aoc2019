@@ -1,8 +1,7 @@
-
 pub mod day1 {
+    pub use error::*;
     use std::fs::File;
     use std::io::{BufRead, BufReader};
-    pub use error::*;
 
     mod error {
         #[derive(Debug)]
@@ -31,32 +30,47 @@ pub mod day1 {
         }
     }
 
+    pub fn run() -> Result<String, Error> {
+        let total_fuel = total_fuel("input/day1.txt")?;
+
+        Ok(format!("{}", total_fuel))
+    }
+
     /// The Fuel Counter-Upper needs to know the total fuel requirement. To find it, individually
     /// calculate the fuel needed for the mass of each module (your puzzle input), then add
     /// together all the fuel values.
     ///
     /// What is the sum of the fuel requirements for all of the modules on your spacecraft?
-    pub fn run() -> Result<String, Error> {
-        let input_filename = "input/day1.txt";
-
-        let values = BufReader::new(File::open(input_filename)?)
+    pub fn total_fuel(input_filename: &str) -> Result<u64, Error> {
+        Ok(BufReader::new(File::open(input_filename)?)
             .lines()
             .map(|l| u64::from_str_radix(&l?, 10).map_err(|e| e.into()))
-            .collect::<Result<Vec<u64>, Error>>()?;
-        let total: u64 = values.iter().map(|v| fuel_counter_upper(*v)).sum();
+            .collect::<Result<Vec<u64>, Error>>()?
+            .iter()
+            .map(|&v| fuel_counter_upper(v))
+            .map(|v| v + tyrannical_fcu(v))
+            .sum())
+    }
 
-        Ok(format!("{}", total))
+    pub fn tyrannical_fcu(mass: u64) -> u64 {
+        let mut sum = 0;
+        let mut d = fuel_counter_upper(mass);
+        while d > 0 {
+            sum += d;
+            d = fuel_counter_upper(d);
+        }
+        sum
     }
 
     /// Fuel required to launch a given module is based on its mass. Specifically, to find the fuel
     /// required for a module, take its mass, divide by three, round down, and subtract 2.
     pub fn fuel_counter_upper(mass: u64) -> u64 {
-        mass / 3 - 2
+        (mass / 3).saturating_sub(2)
     }
 
     #[cfg(test)]
     mod tests {
-        use super::fuel_counter_upper;
+        use super::*;
 
         #[test]
         /// For example:
@@ -71,6 +85,21 @@ pub mod day1 {
             assert_eq!(fuel_counter_upper(1969), 654);
             assert_eq!(fuel_counter_upper(100756), 33583);
         }
-    }
 
+        #[test]
+        /// A module of mass 14 requires 2 fuel. This fuel requires no further fuel (2 divided by 3
+        /// and rounded down is 0, which would call for a negative fuel), so the total fuel
+        /// required is still just 2.
+        /// At first, a module of mass 1969 requires 654 fuel. Then, this fuel requires 216 more
+        /// fuel (654 / 3 - 2). 216 then requires 70 more fuel, which requires 21 fuel, which
+        /// requires 5 fuel, which requires no further fuel. So, the total fuel required for a
+        /// module of mass 1969 is 654 + 216 + 70 + 21 + 5 = 966.
+        /// The fuel required by a module of mass 100756 and its fuel is: 33583 + 11192 + 3728 +
+        /// 1240 + 411 + 135 + 43 + 12 + 2 = 50346.
+        fn test_tyranny() {
+            assert_eq!(tyrannical_fcu(14), 2);
+            assert_eq!(tyrannical_fcu(1969), 966);
+            assert_eq!(tyrannical_fcu(100756), 50346);
+        }
+    }
 }
