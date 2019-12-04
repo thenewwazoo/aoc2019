@@ -120,3 +120,187 @@ pub mod day1 {
         }
     }
 }
+
+/// AoC Day 2
+pub mod day2 {
+    use std::convert::TryFrom;
+    use std::io::{BufRead, BufReader};
+    use std::fs::File;
+
+    /// Day 2 related errors
+    #[derive(PartialEq, Debug)]
+    pub enum Error {
+        /// Got an invalid opcode value
+        InvalidInstruction,
+        /// Tried to access an out-of-bounds memory location
+        MemoryError,
+        /// Encountered termination opcode - not an error
+        Terminated,
+        /// I/O error
+        IoError(std::io::ErrorKind),
+        /// Could not parse number in input
+        ParseIntError(std::num::ParseIntError),
+    }
+
+    impl From<std::io::Error> for Error {
+        fn from(e: std::io::Error) -> Self {
+            Error::IoError(e.kind())
+        }
+    }
+
+    impl From<std::num::ParseIntError> for Error {
+        fn from(e: std::num::ParseIntError) -> Self {
+            Error::ParseIntError(e)
+        }
+    }
+
+    impl std::fmt::Display for Error {
+        fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+            write!(f, "{:?}", self)
+        }
+    }
+
+    /// IntCode opcodes
+    pub enum OpCode {
+        /// Add: args (&lhs, &rhs, &dest)
+        Add,
+        /// Multiply: args (&lhs, &rhs, &dest)
+        Multiply,
+        /// Terminate execution: no args
+        Terminate,
+    }
+
+    impl OpCode {
+        /// Indirect load returning a copy of the value
+        fn get_at(ptr: usize, memory: &mut [u32]) -> Result<u32, Error> {
+            Ok(*memory
+                .get(*memory.get(ptr).ok_or(Error::MemoryError)? as usize)
+                .ok_or(Error::MemoryError)?)
+        }
+
+        /// Indirect load returning mutable location reference
+        fn get_mut_at(ptr: usize, memory: &mut [u32]) -> Result<&mut u32, Error> {
+            Ok(memory
+                .get_mut(*memory.get(ptr).ok_or(Error::MemoryError)? as usize)
+                .ok_or(Error::MemoryError)?)
+        }
+
+        /// Execute the opcode at `ip`, returning the amount to increment `ip`
+        pub fn execute(&self, ip: usize, memory: &mut [u32]) -> Result<usize, Error> {
+            match self {
+                OpCode::Add => {
+                    let left = OpCode::get_at(ip + 1, memory)?;
+                    let right = OpCode::get_at(ip + 2, memory)?;
+                    let result = left + right;
+                    *OpCode::get_mut_at(ip + 3, memory)? = result;
+                    Ok(4)
+                }
+                OpCode::Multiply => {
+                    *OpCode::get_mut_at(ip + 3, memory)? =
+                        OpCode::get_at(ip + 1, memory)? * OpCode::get_at(ip + 2, memory)?;
+                    Ok(4)
+                }
+                OpCode::Terminate => Err(Error::Terminated),
+            }
+        }
+    }
+
+    impl TryFrom<u32> for OpCode {
+        type Error = Error;
+
+        fn try_from(i: u32) -> Result<Self, Self::Error> {
+            Ok(match i {
+                1 => OpCode::Add,
+                2 => OpCode::Multiply,
+                99 => OpCode::Terminate,
+                _ => Err(Error::InvalidInstruction)?,
+            })
+        }
+    }
+
+    /// Run day 2
+    pub fn run() -> Result<String, Error> {
+        let mut instrs = BufReader::new(File::open("input/day2.txt")?)
+            .split(b',')
+            .map(|s| std::str::from_utf8(&s.unwrap()).unwrap().trim_end().to_string())
+            .map(|s| u32::from_str_radix(&s, 10).map_err(|e| e.into()))
+            .collect::<Result<Vec<u32>, Error>>()?;
+
+        instrs[1] = 12;
+        instrs[2] = 2;
+
+        execute(&mut instrs)?;
+
+        Ok(format!("{}", instrs[0]))
+    }
+
+    /// Execute the given memory
+    fn execute(memory: &mut [u32]) -> Result<(), Error> {
+        let mut ip = 0;
+        loop {
+            match OpCode::try_from(memory[ip])?.execute(ip, memory) {
+                Ok(d) => ip += d,
+                Err(Error::Terminated) => break,
+                Err(e) => return Err(e),
+            }
+        }
+
+        Ok(())
+    }
+
+    #[cfg(test)]
+    mod tests {
+        use super::execute;
+        use super::OpCode;
+
+        #[test]
+        fn test_execute() {
+            let mut program = vec![1, 0, 0, 0, 99];
+            assert_eq!(execute(&mut program), Ok(()));
+            assert_eq!(program, vec![2, 0, 0, 0, 99]);
+
+            let mut program = vec![2,3,0,3,99];
+            assert_eq!(execute(&mut program), Ok(()));
+            assert_eq!(program, vec![2,3,0,6,99]);
+
+            let mut program = vec![2,4,4,5,99,0];
+            assert_eq!(execute(&mut program), Ok(()));
+            assert_eq!(program, vec![2,4,4,5,99,9801]);
+
+            let mut program = vec![1,1,1,4,99,5,6,0,99];
+            assert_eq!(execute(&mut program), Ok(()));
+            assert_eq!(program, vec![30,1,1,4,2,5,6,0,99]);
+        }
+
+        #[test]
+        fn test_get_at() {
+            let mut mem = vec![12, 0];
+            assert_eq!(OpCode::get_at(1, &mut mem), Ok(12));
+        }
+
+        #[test]
+        fn test_get_mut_at() {
+            let mut mem = vec![12, 0];
+            let r = OpCode::get_mut_at(1, &mut mem);
+            assert_eq!(r, Ok(&mut 12));
+            *r.unwrap() = 100;
+            assert_eq!(mem[0], 100);
+        }
+
+        #[test]
+        fn test_opcode_execute_add() {
+            let mut mem = vec![1, 0, 0, 0];
+            let op = OpCode::Add;
+            assert!(op.execute(0, &mut mem).is_ok());
+            assert_eq!(mem, vec![2, 0, 0, 0]);
+        }
+
+        #[test]
+        fn test_opcode_execute_multiply() {
+            let mut mem = vec![2, 3, 0, 3];
+            let op = OpCode::Multiply;
+            assert!(op.execute(0, &mut mem).is_ok());
+            assert_eq!(mem, vec![2, 3, 0, 6]);
+        }
+    }
+}
