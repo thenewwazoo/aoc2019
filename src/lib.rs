@@ -124,8 +124,8 @@ pub mod day1 {
 /// AoC Day 2
 pub mod day2 {
     use std::convert::TryFrom;
-    use std::io::{BufRead, BufReader};
     use std::fs::File;
+    use std::io::{BufRead, BufReader};
 
     /// Day 2 related errors
     #[derive(PartialEq, Debug)]
@@ -220,18 +220,39 @@ pub mod day2 {
 
     /// Run day 2
     pub fn run() -> Result<String, Error> {
-        let mut instrs = BufReader::new(File::open("input/day2.txt")?)
+        let instrs = BufReader::new(File::open("input/day2.txt")?)
             .split(b',')
-            .map(|s| std::str::from_utf8(&s.unwrap()).unwrap().trim_end().to_string())
+            .map(|s| {
+                std::str::from_utf8(&s.unwrap())
+                    .unwrap()
+                    .trim_end()
+                    .to_string()
+            })
             .map(|s| u32::from_str_radix(&s, 10).map_err(|e| e.into()))
             .collect::<Result<Vec<u32>, Error>>()?;
 
-        instrs[1] = 12;
-        instrs[2] = 2;
+        let mut noun = None;
+        let mut verb = None;
 
-        execute(&mut instrs)?;
+        for n in 0..=99 {
+            for v in 0..=99 {
+                let mut instrs = instrs.clone();
+                instrs[1] = n;
+                instrs[2] = v;
+                execute(&mut instrs)?;
+                if instrs[0] == 19690720 {
+                    noun = Some(n);
+                    verb = Some(v);
+                    break;
+                }
+            }
+        }
 
-        Ok(format!("{}", instrs[0]))
+        if noun.is_some() && verb.is_some() {
+            Ok(format!("{}", 100 * noun.unwrap() + verb.unwrap()))
+        } else {
+            Ok("not found".to_string())
+        }
     }
 
     /// Execute the given memory
@@ -259,17 +280,17 @@ pub mod day2 {
             assert_eq!(execute(&mut program), Ok(()));
             assert_eq!(program, vec![2, 0, 0, 0, 99]);
 
-            let mut program = vec![2,3,0,3,99];
+            let mut program = vec![2, 3, 0, 3, 99];
             assert_eq!(execute(&mut program), Ok(()));
-            assert_eq!(program, vec![2,3,0,6,99]);
+            assert_eq!(program, vec![2, 3, 0, 6, 99]);
 
-            let mut program = vec![2,4,4,5,99,0];
+            let mut program = vec![2, 4, 4, 5, 99, 0];
             assert_eq!(execute(&mut program), Ok(()));
-            assert_eq!(program, vec![2,4,4,5,99,9801]);
+            assert_eq!(program, vec![2, 4, 4, 5, 99, 9801]);
 
-            let mut program = vec![1,1,1,4,99,5,6,0,99];
+            let mut program = vec![1, 1, 1, 4, 99, 5, 6, 0, 99];
             assert_eq!(execute(&mut program), Ok(()));
-            assert_eq!(program, vec![30,1,1,4,2,5,6,0,99]);
+            assert_eq!(program, vec![30, 1, 1, 4, 2, 5, 6, 0, 99]);
         }
 
         #[test]
