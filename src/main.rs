@@ -10,4 +10,8 @@ fn main() {
         "day 2: {}",
         day2::run().unwrap_or_else(|e| format!("failure: {}", e))
     );
+    println!(
+        "day 3: {}",
+        day3::run().unwrap_or_else(|e| format!("failure: {:?}", e))
+    );
 }
