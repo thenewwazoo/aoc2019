@@ -1,6 +1,6 @@
-use std::convert::{TryFrom, TryInto};
 use std::fs::File;
 use std::io::{BufRead, BufReader};
+use std::collections::HashMap;
 
 /// Day 2 related errors
 #[derive(PartialEq, Debug)]
@@ -73,18 +73,6 @@ pub mod ops {
 
 }
 
-impl TryFrom<u32> for Box<dyn OpCode> {
-    type Error = Error;
-    fn try_from(i: u32) -> Result<Self, Self::Error> {
-        Ok(match i {
-            1 => Box::new(ops::Add),
-            2 => Box::new(ops::Multiply),
-            99 => Box::new(ops::Terminate),
-            _ => Err(Error::InvalidInstruction)?,
-        })
-    }
-}
-
 pub trait IndirectFetch {
     fn get_at(self, ptr: usize) -> Result<u32, Error>;
 }
@@ -111,6 +99,53 @@ impl IndirectStore for &mut [u32] {
     }
 }
 
+pub struct IntCodeMachine {
+    mem: Vec<u32>,
+    opcodes: HashMap<u32, Box<dyn OpCode>>,
+    ip: usize,
+}
+
+impl IntCodeMachine {
+    pub fn boot(mem: Vec<u32>) -> Self {
+        let mut opcodes: HashMap<u32, Box<dyn OpCode>> = HashMap::new();
+        opcodes.insert(1, Box::new(ops::Add));
+        opcodes.insert(2, Box::new(ops::Multiply));
+        opcodes.insert(99, Box::new(ops::Terminate));
+
+        IntCodeMachine {
+            mem,
+            opcodes,
+            ip: 0usize
+        }
+    }
+
+    pub fn register_opcode(&mut self, op_byte: u32, opcode: Box<dyn OpCode>) {
+        self.opcodes.insert(op_byte, opcode);
+    }
+
+    pub fn step(&mut self) -> Result<&[u32], Error> {
+        self.ip += self
+            .opcodes
+            .get(
+                self.mem.get(self.ip).ok_or(Error::MemoryError)?
+                )
+            .ok_or(Error::InvalidInstruction)?
+            .execute(self.ip, &mut self.mem)?;
+        Ok(&self.mem)
+    }
+
+    pub fn run(&mut self) -> Result<&[u32], Error> {
+        loop {
+            match self.step() {
+                Ok(_) => continue,
+                Err(Error::Terminated) => break,
+                Err(e) => return Err(e),
+            }
+        }
+        Ok(&self.mem)
+    }
+
+}
 
 /// Run day 2
 pub fn run() -> Result<String, Error> {
@@ -132,8 +167,9 @@ pub fn run() -> Result<String, Error> {
             let mut instrs = instrs.clone();
             instrs[1] = n;
             instrs[2] = v;
-            execute(&mut instrs)?;
-            if instrs[0] == 19690720 {
+            let mut machine = IntCodeMachine::boot(instrs);
+            let end_state = machine.run()?;
+            if end_state[0] == 19690720 {
                 noun = Some(n);
                 verb = Some(v);
                 break;
@@ -146,20 +182,6 @@ pub fn run() -> Result<String, Error> {
     } else {
         Ok("not found".to_string())
     }
-}
-
-/// Execute the given memory
-fn execute(memory: &mut [u32]) -> Result<(), Error> {
-    let mut ip = 0;
-    loop {
-        let op: Box<dyn OpCode> = memory[ip].try_into()?;
-        match op.execute(ip, memory) {
-            Ok(d) => ip += d,
-            Err(Error::Terminated) => break,
-            Err(e) => return Err(e),
-        }
-    }
-    Ok(())
 }
 
 #[cfg(test)]

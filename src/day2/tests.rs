@@ -1,20 +1,22 @@
-use super::{execute, OpCode, IndirectFetch, IndirectStore};
+use super::{IntCodeMachine, OpCode, IndirectFetch, IndirectStore};
 use super::ops::*;
 
 #[test]
 fn test_execute() {
-    let mut program = vec![1, 0, 0, 0, 99];
-    assert_eq!(execute(&mut program), Ok(()));
-    assert_eq!(program, vec![2, 0, 0, 0, 99]);
-    let mut program = vec![2, 3, 0, 3, 99];
-    assert_eq!(execute(&mut program), Ok(()));
-    assert_eq!(program, vec![2, 3, 0, 6, 99]);
-    let mut program = vec![2, 4, 4, 5, 99, 0];
-    assert_eq!(execute(&mut program), Ok(()));
-    assert_eq!(program, vec![2, 4, 4, 5, 99, 9801]);
-    let mut program = vec![1, 1, 1, 4, 99, 5, 6, 0, 99];
-    assert_eq!(execute(&mut program), Ok(()));
-    assert_eq!(program, vec![30, 1, 1, 4, 2, 5, 6, 0, 99]);
+    let program = vec![1, 0, 0, 0, 99];
+    let mut machine = IntCodeMachine::boot(program);
+    let program = machine.run();
+    assert_eq!(program, Ok(vec![2, 0, 0, 0, 99].as_slice()));
+
+    let program = vec![2, 4, 4, 5, 99, 0];
+    let mut machine = IntCodeMachine::boot(program);
+    let program = machine.run();
+    assert_eq!(program, Ok(vec![2, 4, 4, 5, 99, 9801].as_slice()));
+
+    let program = vec![1, 1, 1, 4, 99, 5, 6, 0, 99];
+    let mut machine = IntCodeMachine::boot(program);
+    let program = machine.run();
+    assert_eq!(program, Ok(vec![30, 1, 1, 4, 2, 5, 6, 0, 99].as_slice()));
 }
 
 #[test]
