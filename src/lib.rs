@@ -6,3 +6,6 @@ pub mod day2;
 
 /// AoC Day 3
 pub mod day3;
+
+/// AoC Day 4
+pub mod day4;
