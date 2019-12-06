@@ -1,4 +1,4 @@
-use std::convert::TryFrom;
+use std::convert::{TryFrom, TryInto};
 use std::fs::File;
 use std::io::{BufRead, BufReader};
 
@@ -35,62 +35,82 @@ impl std::fmt::Display for Error {
     }
 }
 
-/// IntCode opcodes
-pub enum OpCode {
-    /// Add: args (&lhs, &rhs, &dest)
-    Add,
-    /// Multiply: args (&lhs, &rhs, &dest)
-    Multiply,
-    /// Terminate execution: no args
-    Terminate,
+pub trait OpCode {
+    fn execute(&self, ip: usize, memory: &mut [u32]) -> Result<usize, Error>;
 }
 
-impl OpCode {
-    /// Indirect load returning a copy of the value
-    fn get_at(ptr: usize, memory: &mut [u32]) -> Result<u32, Error> {
-        Ok(*memory
-            .get(*memory.get(ptr).ok_or(Error::MemoryError)? as usize)
-            .ok_or(Error::MemoryError)?)
-    }
+pub mod ops {
+    use super::{Error,OpCode};
+    use super::{IndirectFetch, IndirectStore};
 
-    /// Indirect load returning mutable location reference
-    fn get_mut_at(ptr: usize, memory: &mut [u32]) -> Result<&mut u32, Error> {
-        Ok(memory
-            .get_mut(*memory.get(ptr).ok_or(Error::MemoryError)? as usize)
-            .ok_or(Error::MemoryError)?)
-    }
-
-    /// Execute the opcode at `ip`, returning the amount to increment `ip`
-    pub fn execute(&self, ip: usize, memory: &mut [u32]) -> Result<usize, Error> {
-        match self {
-            OpCode::Add => {
-                let left = OpCode::get_at(ip + 1, memory)?;
-                let right = OpCode::get_at(ip + 2, memory)?;
-                let result = left + right;
-                *OpCode::get_mut_at(ip + 3, memory)? = result;
-                Ok(4)
-            }
-            OpCode::Multiply => {
-                *OpCode::get_mut_at(ip + 3, memory)? =
-                    OpCode::get_at(ip + 1, memory)? * OpCode::get_at(ip + 2, memory)?;
-                Ok(4)
-            }
-            OpCode::Terminate => Err(Error::Terminated),
+    pub struct Add;
+    impl OpCode for Add {
+        fn execute(&self, ip: usize, memory: &mut [u32]) -> Result<usize, Error> {
+            let left = memory.get_at(ip+1)?;
+            let right = memory.get_at(ip + 2)?;
+            let result = left + right;
+            memory.store_at(ip + 3, result)?;
+            Ok(4)
         }
     }
+
+    pub struct Multiply;
+    impl OpCode for Multiply {
+        fn execute(&self, ip: usize, memory: &mut [u32]) -> Result<usize, Error> {
+            let left = memory.get_at(ip+1)?;
+            let right = memory.get_at(ip+2)?;
+            memory.store_at(ip + 3, left * right)?;
+            Ok(4)
+        }
+    }
+
+    pub struct Terminate;
+    impl OpCode for Terminate {
+        fn execute(&self, _ip: usize, _memory: &mut [u32]) -> Result<usize, Error> {
+            Err(Error::Terminated)
+        }
+    }
+
 }
 
-impl TryFrom<u32> for OpCode {
+impl TryFrom<u32> for Box<dyn OpCode> {
     type Error = Error;
     fn try_from(i: u32) -> Result<Self, Self::Error> {
         Ok(match i {
-            1 => OpCode::Add,
-            2 => OpCode::Multiply,
-            99 => OpCode::Terminate,
+            1 => Box::new(ops::Add),
+            2 => Box::new(ops::Multiply),
+            99 => Box::new(ops::Terminate),
             _ => Err(Error::InvalidInstruction)?,
         })
     }
 }
+
+pub trait IndirectFetch {
+    fn get_at(self, ptr: usize) -> Result<u32, Error>;
+}
+
+impl IndirectFetch for &mut [u32] {
+    fn get_at(self, ptr: usize) -> Result<u32, Error> {
+        Ok(*self
+            .get(*self.get(ptr).ok_or(Error::MemoryError)? as usize)
+            .ok_or(Error::MemoryError)?)
+
+    }
+}
+
+pub trait IndirectStore {
+    fn store_at(self, ptr: usize, value: u32) -> Result<(), Error>;
+}
+
+impl IndirectStore for &mut [u32] {
+    fn store_at(self, ptr: usize, value: u32) -> Result<(), Error> {
+        *self.get_mut(*self.get(ptr).ok_or(Error::MemoryError)? as usize)
+            .ok_or(Error::MemoryError)? = value;
+
+        Ok(())
+    }
+}
+
 
 /// Run day 2
 pub fn run() -> Result<String, Error> {
@@ -132,7 +152,8 @@ pub fn run() -> Result<String, Error> {
 fn execute(memory: &mut [u32]) -> Result<(), Error> {
     let mut ip = 0;
     loop {
-        match OpCode::try_from(memory[ip])?.execute(ip, memory) {
+        let op: Box<dyn OpCode> = memory[ip].try_into()?;
+        match op.execute(ip, memory) {
             Ok(d) => ip += d,
             Err(Error::Terminated) => break,
             Err(e) => return Err(e),
