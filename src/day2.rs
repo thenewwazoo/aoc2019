@@ -46,7 +46,6 @@ pub enum OpCode {
 }
 
 impl OpCode {
-
     /// Indirect load returning a copy of the value
     fn get_at(ptr: usize, memory: &mut [u32]) -> Result<u32, Error> {
         Ok(*memory
