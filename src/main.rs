@@ -15,8 +15,7 @@ fn main() {
         day3::run().unwrap_or_else(|e| format!("failure: {:?}", e)),
         day3::run_part2().unwrap_or_else(|e| format!("failure: {:?}", e))
     );
-    println!(
-        "day 4: {}",
-        day4::run()
-    );
+    println!("day 4: {}", day4::run());
+    println!("day 5 starting...");
+    day5::run().unwrap();
 }

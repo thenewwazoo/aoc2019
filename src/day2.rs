@@ -2,16 +2,17 @@ use std::collections::HashMap;
 use std::fs::File;
 use std::io::{BufRead, BufReader};
 
-/// Day 2 related errors
-#[derive(PartialEq, Debug)]
+use op::add::Add;
+use op::mul::Mul;
+use op::term::Term;
+use op::OpCode;
+use param::ParamReg;
+
+#[derive(Debug, PartialEq, Eq)]
 pub enum Error {
-    /// Got an invalid opcode value
-    InvalidInstruction,
-    /// Got a bad parameter mode value
-    InvalidParamMode(u8),
-    /// Tried to access an out-of-bounds memory location
+    BadOpcode,
     MemoryError,
-    /// Encountered termination opcode - not an error
+    BadParamMode,
     Terminated,
     /// I/O error
     IoError(std::io::ErrorKind),
@@ -37,189 +38,8 @@ impl std::fmt::Display for Error {
     }
 }
 
-pub trait OpCode {
-    fn execute(
-        &self,
-        ip: usize,
-        argmodes: Vec<ParamMode>,
-        memory: &mut [i32],
-    ) -> Result<usize, Error>;
-}
-
-pub fn decode(op: i32) -> Result<(i32, Vec<ParamMode>), Error> {
-    let op_part = op % 100; // get rightmost two digits
-    let mut op = op / 100;
-    let mut modes = Vec::new();
-    while op > 0 {
-        modes.push(match (op % 10) as u8 {
-            0u8 => ParamMode::Indirect,
-            1u8 => ParamMode::Immediate,
-            n @ _ => return Err(Error::InvalidParamMode(n)),
-        });
-        op /= 10;
-    }
-    Ok((op_part, modes))
-}
-
-#[derive(Clone)]
-pub enum ParamMode {
-    Immediate,
-    Indirect,
-}
-
-impl ParamMode {
-    pub fn access<'a>(&self, ptr: usize, mem: &'a mut [i32]) -> Result<&'a mut i32, Error> {
-        match self {
-            ParamMode::Immediate => mem.get_mut(ptr).ok_or(Error::MemoryError),
-            ParamMode::Indirect => mem
-                .get_mut(*mem.get(ptr).ok_or(Error::MemoryError)? as usize)
-                .ok_or(Error::MemoryError),
-        }
-    }
-}
-
-pub mod ops {
-    use super::ParamMode;
-    use super::{Error, OpCode};
-    use super::{IndirectFetch, IndirectStore};
-
-    fn munge_params(width: usize, modes: Vec<ParamMode>) -> Vec<ParamMode> {
-        modes
-            .into_iter()
-            .chain(vec![ParamMode::Indirect; width - modes.len()].into_iter())
-            .rev()
-            .collect()
-    }
-
-    pub struct Add;
-    impl OpCode for Add {
-        fn execute(
-            &self,
-            ip: usize,
-            argmodes: Vec<ParamMode>,
-            memory: &mut [i32],
-        ) -> Result<usize, Error> {
-            let left = *argmodes[0].access(ip + 1, memory)?;
-            let left = memory.get_at(ip + 1)?;
-            let right = memory.get_at(ip + 2)?;
-            let result = left + right;
-            memory.store_at(ip + 3, result)?;
-            Ok(4)
-        }
-    }
-
-    pub struct Multiply;
-    impl OpCode for Multiply {
-        fn execute(
-            &self,
-            ip: usize,
-            argmodes: Vec<ParamMode>,
-            memory: &mut [i32],
-        ) -> Result<usize, Error> {
-            let left = memory.get_at(ip + 1)?;
-            let right = memory.get_at(ip + 2)?;
-            memory.store_at(ip + 3, left * right)?;
-            Ok(4)
-        }
-    }
-
-    pub struct Terminate;
-    impl OpCode for Terminate {
-        fn execute(
-            &self,
-            _ip: usize,
-            _argmodes: Vec<ParamMode>,
-            _memory: &mut [i32],
-        ) -> Result<usize, Error> {
-            Err(Error::Terminated)
-        }
-    }
-}
-
-pub trait Load {
-    fn load(self, ptr: usize) -> Result<i32, Error>;
-}
-
-pub struct ImmediateLoad;
-impl Load for ImmediateLoad {
-    fn load(ptr: usize, mem: &[i32]) -> Result<&i32, Error> {}
-}
-
-pub trait IndirectFetch {
-    fn get_at(self, ptr: usize) -> Result<i32, Error>;
-}
-
-impl IndirectFetch for &mut [i32] {
-    fn get_at(self, ptr: usize) -> Result<i32, Error> {
-        Ok(*self
-            .get(*self.get(ptr).ok_or(Error::MemoryError)? as usize)
-            .ok_or(Error::MemoryError)?)
-    }
-}
-
-pub trait IndirectStore {
-    fn store_at(self, ptr: usize, value: i32) -> Result<(), Error>;
-}
-
-impl IndirectStore for &mut [i32] {
-    fn store_at(self, ptr: usize, value: i32) -> Result<(), Error> {
-        *self
-            .get_mut(*self.get(ptr).ok_or(Error::MemoryError)? as usize)
-            .ok_or(Error::MemoryError)? = value;
-
-        Ok(())
-    }
-}
-
-pub struct IntCodeMachine {
-    mem: Vec<i32>,
-    opcodes: HashMap<i32, Box<dyn OpCode>>,
-    ip: usize,
-}
-
-impl IntCodeMachine {
-    pub fn boot(mem: Vec<i32>) -> Self {
-        let mut opcodes: HashMap<i32, Box<dyn OpCode>> = HashMap::new();
-        opcodes.insert(1, Box::new(ops::Add));
-        opcodes.insert(2, Box::new(ops::Multiply));
-        opcodes.insert(99, Box::new(ops::Terminate));
-
-        IntCodeMachine {
-            mem,
-            opcodes,
-            ip: 0usize,
-        }
-    }
-
-    pub fn register_opcode(&mut self, op_byte: i32, opcode: Box<dyn OpCode>) {
-        self.opcodes.insert(op_byte, opcode);
-    }
-
-    pub fn step(&mut self) -> Result<&[i32], Error> {
-        let (opcode, params) = decode(*self.mem.get(self.ip).ok_or(Error::MemoryError)?)?;
-        self.ip += self
-            .opcodes
-            .get(&opcode)
-            .ok_or(Error::InvalidInstruction)?
-            .execute(self.ip, params, &mut self.mem)?;
-        Ok(&self.mem)
-    }
-
-    pub fn run(&mut self) -> Result<&[i32], Error> {
-        loop {
-            match self.step() {
-                Ok(_) => continue,
-                Err(Error::Terminated) => break,
-                Err(e) => return Err(e),
-            }
-        }
-        Ok(&self.mem)
-    }
-}
-
-/// Run day 2
-pub fn run() -> Result<String, Error> {
-    let instrs = BufReader::new(File::open("input/day2.txt")?)
+pub fn read_comma_file(filename: &str) -> Result<Vec<i32>, Error> {
+    BufReader::new(File::open(filename)?)
         .split(b',')
         .map(|s| {
             std::str::from_utf8(&s.unwrap())
@@ -228,7 +48,12 @@ pub fn run() -> Result<String, Error> {
                 .to_string()
         })
         .map(|s| i32::from_str_radix(&s, 10).map_err(|e| e.into()))
-        .collect::<Result<Vec<i32>, Error>>()?;
+        .collect()
+}
+
+/// Run day 2
+pub fn run() -> Result<String, Error> {
+    let instrs = read_comma_file("input/day2.txt")?;
 
     let mut noun = None;
     let mut verb = None;
@@ -237,7 +62,7 @@ pub fn run() -> Result<String, Error> {
             let mut instrs = instrs.clone();
             instrs[1] = n;
             instrs[2] = v;
-            let mut machine = IntCodeMachine::boot(instrs);
+            let machine = IntCodeMachine::boot(instrs);
             let end_state = machine.run()?;
             if end_state[0] == 19690720 {
                 noun = Some(n);
@@ -254,5 +79,348 @@ pub fn run() -> Result<String, Error> {
     }
 }
 
+pub struct IntCodeMachine {
+    ip: isize,
+    mem: Vec<i32>,
+    op_map: HashMap<i32, fn(&ParamReg, i32) -> Result<Box<dyn OpCode>, Error>>,
+    p_reg: ParamReg,
+}
+
+impl IntCodeMachine {
+    pub fn boot(mem: Vec<i32>) -> Self {
+        let mut m = IntCodeMachine {
+            ip: 0,
+            mem,
+            op_map: HashMap::new(),
+            p_reg: ParamReg::new(),
+        };
+        m.reg_opcode(Add::code(), Add::new);
+        m.reg_opcode(Mul::code(), Mul::new);
+        m.reg_opcode(Term::code(), Term::new);
+        m.reg_param_mode(0, indirect::load, indirect::store);
+        m
+    }
+
+    fn step(&mut self) -> Result<(), Error> {
+        let op = self.decode(*self.mem.get(self.ip as usize).ok_or(Error::MemoryError)?)?;
+        let orig_ip_val = *self.mem.get(self.ip as usize).ok_or(Error::MemoryError)?;
+        let diff = op.execute(self.ip, &mut self.mem)?;
+        if orig_ip_val != *self.mem.get(self.ip as usize).ok_or(Error::MemoryError)? {
+            // the value under the IP was written - jump to that address
+            self.ip = *self.mem.get(self.ip as usize).ok_or(Error::MemoryError)? as isize;
+        } else {
+            self.ip += diff;
+        }
+
+        assert!(self.ip > 0);
+        Ok(())
+    }
+
+    pub fn run(mut self) -> Result<Vec<i32>, Error> {
+        loop {
+            match self.step() {
+                Ok(_) => continue,
+                Err(Error::Terminated) => break Ok(self.mem),
+                Err(e) => break Err(e),
+            }
+        }
+    }
+
+    pub fn decode(&mut self, opcode: i32) -> Result<Box<dyn OpCode>, Error> {
+        let (op, param) = (opcode % 100, opcode / 100);
+        self.op_map.get(&op).ok_or(Error::BadOpcode)?(&self.p_reg, param)
+    }
+
+    pub fn reg_opcode(
+        &mut self,
+        opcode: i32,
+        ctor: fn(&ParamReg, i32) -> Result<Box<dyn OpCode>, Error>,
+    ) {
+        self.op_map.insert(opcode, ctor);
+    }
+
+    pub fn reg_param_mode(&mut self, id: i32, load: LoadPtr, store: StorePtr) {
+        self.p_reg.register_mode(id, load, store);
+    }
+}
+
+pub type LoadPtr = fn(isize, &[i32]) -> Result<i32, Error>;
+pub type StorePtr = fn(isize, &mut [i32], i32) -> Result<(), Error>;
+
+pub mod op {
+    use super::param::{decompose_param, ParamReg};
+    use super::{Error, LoadPtr, StorePtr};
+    use mopa::Any;
+
+    pub trait OpCode: std::fmt::Debug + Any {
+        fn new(reg: &ParamReg, param: i32) -> Result<Box<dyn OpCode>, Error>
+        where
+            Self: Sized;
+
+        fn execute(&self, ip: isize, mem: &mut [i32]) -> Result<isize, Error>;
+
+        fn code() -> i32
+        where
+            Self: Sized;
+
+        fn width() -> usize
+        where
+            Self: Sized;
+    }
+
+    pub mod mul {
+        use super::*;
+
+        pub struct Mul(LoadPtr, LoadPtr, StorePtr);
+        impl OpCode for Mul {
+            fn new(reg: &ParamReg, param: i32) -> Result<Box<dyn OpCode>, Error> {
+                let ps = decompose_param(param, Mul::width() as usize);
+                Ok(Box::new(Mul(
+                    reg.get(ps[0])?.load,
+                    reg.get(ps[1])?.load,
+                    reg.get(ps[2])?.store,
+                )) as Box<dyn OpCode>)
+            }
+
+            fn execute(&self, ip: isize, mem: &mut [i32]) -> Result<isize, Error> {
+                let l = self.0(ip + 1, mem)?;
+                let r = self.1(ip + 2, mem)?;
+                self.2(ip + 3, mem, l * r)?;
+                Ok(Mul::width() as isize)
+            }
+
+            fn code() -> i32 {
+                2
+            }
+
+            fn width() -> usize {
+                4
+            }
+        }
+
+        impl std::fmt::Debug for Mul {
+            fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                write!(f, "MUL")
+            }
+        }
+
+        #[cfg(test)]
+        mod mul_test {
+            use super::Mul;
+            use crate::day2::indirect::*;
+            use crate::day2::op::OpCode;
+
+            #[test]
+            fn mul() {
+                let mut mem = vec![2, 0, 0, 4, 0];
+                let mul = Mul(load, load, store);
+                assert!(mul.execute(0, &mut mem).is_ok());
+                assert_eq!(mem, vec![2, 0, 0, 4, 4]);
+            }
+        }
+    }
+
+    pub mod add {
+        use super::*;
+
+        pub struct Add(pub LoadPtr, pub LoadPtr, pub StorePtr);
+
+        impl OpCode for Add {
+            fn new(reg: &ParamReg, param: i32) -> Result<Box<dyn OpCode>, Error> {
+                let ps = decompose_param(param, Add::width() as usize);
+                Ok(Box::new(Add(
+                    reg.get(ps[0])?.load,
+                    reg.get(ps[1])?.load,
+                    reg.get(ps[2])?.store,
+                )) as Box<dyn OpCode>)
+            }
+
+            fn execute(&self, ip: isize, mem: &mut [i32]) -> Result<isize, Error> {
+                let l = self.0(ip + 1, mem)?;
+                let r = self.1(ip + 2, mem)?;
+                self.2(ip + 3, mem, l + r)?;
+                Ok(Add::width() as isize)
+            }
+
+            fn code() -> i32 {
+                1
+            }
+
+            fn width() -> usize {
+                4
+            }
+        }
+
+        impl std::fmt::Debug for Add {
+            fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                write!(f, "ADD")
+            }
+        }
+
+        #[cfg(test)]
+        mod add_test {
+            use super::Add;
+            use crate::day2::indirect::*;
+            use crate::day2::op::OpCode;
+
+            #[test]
+            fn test_add() {
+                let mut mem = vec![1, 0, 0, 4, 0];
+                let add = Add(load, load, store);
+                assert!(add.execute(0, &mut mem).is_ok());
+                assert_eq!(mem, vec![1, 0, 0, 4, 2]);
+            }
+        }
+    }
+
+    pub mod term {
+        use super::*;
+
+        pub struct Term;
+
+        impl OpCode for Term {
+            fn new(_reg: &ParamReg, _param: i32) -> Result<Box<dyn OpCode>, Error> {
+                Ok(Box::new(Term) as Box<dyn OpCode>)
+            }
+
+            fn execute(&self, _ip: isize, _mem: &mut [i32]) -> Result<isize, Error> {
+                Err(Error::Terminated)
+            }
+
+            fn code() -> i32 {
+                99
+            }
+
+            fn width() -> usize {
+                unreachable!();
+            }
+        }
+
+        impl std::fmt::Debug for Term {
+            fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                write!(f, "TERM")
+            }
+        }
+    }
+}
+
+pub mod indirect {
+    use super::Error;
+
+    pub fn load(ptr: isize, mem: &[i32]) -> Result<i32, Error> {
+        assert!(ptr >= 0);
+        let ptr = ptr as usize;
+        Ok(*mem
+            .get(*mem.get(ptr).ok_or(Error::MemoryError)? as usize)
+            .ok_or(Error::MemoryError)?)
+    }
+
+    pub fn store(ptr: isize, mem: &mut [i32], value: i32) -> Result<(), Error> {
+        assert!(ptr >= 0);
+        let ptr = ptr as usize;
+        *mem.get_mut(*mem.get(ptr).ok_or(Error::MemoryError)? as usize)
+            .ok_or(Error::MemoryError)? = value;
+        Ok(())
+    }
+
+    #[cfg(test)]
+    mod test {
+        use super::*;
+
+        #[test]
+        fn indir_get() {
+            let mem = vec![12, 0];
+            assert_eq!(load(1, &mem), Ok(12));
+        }
+
+        #[test]
+        fn indir_store() {
+            let mut mem = vec![12, 0];
+            assert!(store(1, &mut mem, 42).is_ok());
+            assert_eq!(mem, vec![42, 0]);
+        }
+    }
+}
+
+pub struct LSPair {
+    pub load: LoadPtr,
+    pub store: StorePtr,
+}
+
+pub mod param {
+    use super::Error;
+    use super::{LSPair, LoadPtr, StorePtr};
+    use std::collections::HashMap;
+
+    pub struct ParamReg {
+        mode_map: HashMap<i32, LSPair>,
+    }
+
+    impl ParamReg {
+        pub fn new() -> Self {
+            ParamReg {
+                mode_map: HashMap::new(),
+            }
+        }
+
+        pub fn get(&self, mode: i32) -> Result<&LSPair, Error> {
+            self.mode_map.get(&mode).ok_or(Error::BadParamMode)
+        }
+
+        pub fn register_mode(&mut self, id: i32, load: LoadPtr, store: StorePtr) {
+            self.mode_map.insert(id, LSPair { load, store });
+        }
+    }
+
+    pub fn decompose_param(mut code: i32, width: usize) -> Vec<i32> {
+        let mut v = Vec::new();
+        while code > 0 {
+            v.push(code % 10);
+            code /= 10;
+        }
+        let v_len = v.len();
+        v.into_iter()
+            .chain(vec![0; width - v_len].into_iter())
+            .collect()
+    }
+
+    #[cfg(test)]
+    mod test {
+        use super::*;
+
+        #[test]
+        fn testdecompose_param() {
+            assert_eq!(decompose_param(0, 4), vec![0, 0, 0, 0]);
+            assert_eq!(decompose_param(1100, 4), vec![0, 0, 1, 1]);
+        }
+    }
+}
+
 #[cfg(test)]
-mod tests;
+mod run_test {
+    use super::*;
+
+    #[test]
+    fn test_execute() {
+        // add @0 + @0 -> @5 => 1 + 1 = 2
+        let program = vec![1, 0, 0, 5, 99, 5];
+        let r = IntCodeMachine::boot(program).run();
+        assert!(r.is_ok(), format!("r is {:?}", r));
+        assert_eq!(r.unwrap(), vec![1, 0, 0, 5, 99, 2]);
+
+        let program = vec![2, 3, 0, 3, 99];
+        let r = IntCodeMachine::boot(program).run();
+        assert!(r.is_ok());
+        assert_eq!(r.unwrap(), vec![2, 3, 0, 6, 99]);
+
+        let program = vec![2, 4, 4, 5, 99, 0];
+        let r = IntCodeMachine::boot(program).run();
+        assert!(r.is_ok());
+        assert_eq!(r.unwrap(), vec![2, 4, 4, 5, 99, 9801]);
+
+        let program = vec![1, 1, 1, 4, 99, 5, 6, 0, 99];
+        let r = IntCodeMachine::boot(program).run();
+        assert!(r.is_ok());
+        assert_eq!(r.unwrap(), vec![30, 1, 1, 4, 2, 5, 6, 0, 99]);
+    }
+}
