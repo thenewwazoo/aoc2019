@@ -43,6 +43,8 @@ pub mod op {
     use crate::day2::param::{decompose_param, ParamReg};
     use crate::day2::{Error, LoadPtr, StorePtr};
 
+    use std::sync::mpsc::{Receiver, Sender};
+
     pub use eq::*;
     pub use jnz::*;
     pub use jz::*;
@@ -55,7 +57,13 @@ pub mod op {
             Ok(Box::new(Input) as Box<dyn OpCode>)
         }
 
-        fn execute(&self, ip: isize, mem: &mut [i32]) -> Result<isize, Error> {
+        fn execute(
+            &self,
+            ip: isize,
+            mem: &mut [i32],
+            _: &Option<Receiver<i32>>,
+            _: &mut Option<Sender<i32>>,
+        ) -> Result<isize, Error> {
             indirect::store(ip + 1, mem, read::<i32>("INPUT: ")?)?;
             Ok(Input::width() as isize)
         }
@@ -83,7 +91,13 @@ pub mod op {
             Ok(Box::new(Output(reg.get(ps[0])?.load)) as Box<dyn OpCode>)
         }
 
-        fn execute(&self, ip: isize, mem: &mut [i32]) -> Result<isize, Error> {
+        fn execute(
+            &self,
+            ip: isize,
+            mem: &mut [i32],
+            _: &Option<Receiver<i32>>,
+            _: &mut Option<Sender<i32>>,
+        ) -> Result<isize, Error> {
             println!("OUTPUT: {}", self.0(ip + 1, mem)?);
             Ok(Output::width() as isize)
         }
@@ -113,7 +127,13 @@ pub mod op {
                 Ok(Box::new(Jnz(reg.get(ps[0])?.load, reg.get(ps[1])?.load)) as Box<dyn OpCode>)
             }
 
-            fn execute(&self, ip: isize, mem: &mut [i32]) -> Result<isize, Error> {
+            fn execute(
+                &self,
+                ip: isize,
+                mem: &mut [i32],
+                _: &Option<Receiver<i32>>,
+                _: &mut Option<Sender<i32>>,
+            ) -> Result<isize, Error> {
                 if self.0(ip + 1, mem)? != 0 {
                     Ok(self.1(ip + 2, mem)? as isize - ip)
                 } else {
@@ -140,24 +160,28 @@ pub mod op {
         mod test {
             use super::*;
             use crate::day5::immediate;
+            use std::sync::mpsc::channel;
 
             #[test]
             fn jnz() {
                 let op = Jnz(immediate::load, immediate::load);
+                let (tx, rx) = channel();
 
                 // do not jump, ip = 3
                 let mut mem = vec![115, 0, 0];
-                let r = op.execute(0, &mut mem);
+                let r = op.execute(0, &mut mem, &Some(rx), &mut Some(tx));
                 assert_eq!(r, Ok(3));
 
+                let (tx, rx) = channel();
                 // jump, ip = 0
                 let mut mem = vec![115, 1, 0];
-                let r = op.execute(0, &mut mem);
+                let r = op.execute(0, &mut mem, &Some(rx), &mut Some(tx));
                 assert_eq!(r, Ok(0));
 
+                let (tx, rx) = channel();
                 // jump backwards, ip = 0
                 let mut mem = vec![0, 0, 115, 1, 0];
-                let r = op.execute(2, &mut mem);
+                let r = op.execute(2, &mut mem, &Some(rx), &mut Some(tx));
                 assert_eq!(r, Ok(-2));
             }
         }
@@ -165,6 +189,7 @@ pub mod op {
 
     pub mod jz {
         use super::*;
+        use std::sync::mpsc::{Receiver, Sender};
 
         pub struct Jz(LoadPtr, LoadPtr);
         impl OpCode for Jz {
@@ -173,7 +198,13 @@ pub mod op {
                 Ok(Box::new(Jz(reg.get(ps[0])?.load, reg.get(ps[1])?.load)) as Box<dyn OpCode>)
             }
 
-            fn execute(&self, ip: isize, mem: &mut [i32]) -> Result<isize, Error> {
+            fn execute(
+                &self,
+                ip: isize,
+                mem: &mut [i32],
+                _: &Option<Receiver<i32>>,
+                _: &mut Option<Sender<i32>>,
+            ) -> Result<isize, Error> {
                 if self.0(ip + 1, mem)? == 0 {
                     Ok(self.1(ip + 2, mem)? as isize - ip)
                 } else {
@@ -194,24 +225,28 @@ pub mod op {
         mod test {
             use super::*;
             use crate::day5::immediate;
+            use std::sync::mpsc::channel;
 
             #[test]
             fn jz() {
                 let op = Jz(immediate::load, immediate::load);
 
                 // jump, ip = 0
+                let (tx, rx) = channel();
                 let mut mem = vec![115, 0, 0];
-                let r = op.execute(0, &mut mem);
+                let r = op.execute(0, &mut mem, &Some(rx), &mut Some(tx));
                 assert_eq!(r, Ok(0));
 
                 // do not jump, ip = 3
+                let (tx, rx) = channel();
                 let mut mem = vec![115, 1, 0];
-                let r = op.execute(0, &mut mem);
+                let r = op.execute(0, &mut mem, &Some(rx), &mut Some(tx));
                 assert_eq!(r, Ok(3));
 
                 // jump backwards, ip = 0
+                let (tx, rx) = channel();
                 let mut mem = vec![0, 0, 115, 0, 0];
-                let r = op.execute(2, &mut mem);
+                let r = op.execute(2, &mut mem, &Some(rx), &mut Some(tx));
                 assert_eq!(r, Ok(-2));
             }
         }
@@ -237,7 +272,13 @@ pub mod op {
                 )) as Box<dyn OpCode>)
             }
 
-            fn execute(&self, ip: isize, mem: &mut [i32]) -> Result<isize, Error> {
+            fn execute(
+                &self,
+                ip: isize,
+                mem: &mut [i32],
+                _: &Option<Receiver<i32>>,
+                _: &mut Option<Sender<i32>>,
+            ) -> Result<isize, Error> {
                 if self.0(ip + 1, mem)? < self.1(ip + 2, mem)? {
                     self.2(ip + 3, mem, 1)?;
                 } else {
@@ -265,19 +306,22 @@ pub mod op {
         mod test {
             use super::*;
             use crate::day2::indirect::*;
+            use std::sync::mpsc::channel;
 
             #[test]
             fn test_lt() {
                 // true, write 1 to @3
                 let mut mem = vec![7, 4, 5, 3, 1, 2];
+                let (tx, rx) = channel();
                 let lt = Lt(load, load, store);
-                assert!(lt.execute(0, &mut mem).is_ok());
+                assert!(lt.execute(0, &mut mem, &Some(rx), &mut Some(tx)).is_ok());
                 assert_eq!(mem, vec![7, 4, 5, 1, 1, 2]);
 
                 // false, write 0 to @3
                 let mut mem = vec![7, 5, 4, 3, 1, 2];
+                let (tx, rx) = channel();
                 let lt = Lt(load, load, store);
-                assert!(lt.execute(0, &mut mem).is_ok());
+                assert!(lt.execute(0, &mut mem, &Some(rx), &mut Some(tx)).is_ok());
                 assert_eq!(mem, vec![7, 5, 4, 0, 1, 2]);
             }
         }
@@ -285,6 +329,7 @@ pub mod op {
 
     pub mod eq {
         use super::*;
+        use std::sync::mpsc::{Receiver, Sender};
 
         pub struct Eq(LoadPtr, LoadPtr, StorePtr);
         impl OpCode for Eq {
@@ -297,7 +342,13 @@ pub mod op {
                 )) as Box<dyn OpCode>)
             }
 
-            fn execute(&self, ip: isize, mem: &mut [i32]) -> Result<isize, Error> {
+            fn execute(
+                &self,
+                ip: isize,
+                mem: &mut [i32],
+                _: &Option<Receiver<i32>>,
+                _: &mut Option<Sender<i32>>,
+            ) -> Result<isize, Error> {
                 if self.0(ip + 1, mem)? == self.1(ip + 2, mem)? {
                     self.2(ip + 3, mem, 1)?;
                 } else {
@@ -325,17 +376,20 @@ pub mod op {
         mod test {
             use super::*;
             use crate::day2::indirect::*;
+            use std::sync::mpsc::channel;
 
             #[test]
             fn test_eq() {
                 let mut mem = vec![118, 1, 2, 3];
+                let (tx, rx) = channel();
                 let lt = Eq(load, load, store);
-                assert!(lt.execute(0, &mut mem).is_ok());
+                assert!(lt.execute(0, &mut mem, &Some(rx), &mut Some(tx)).is_ok());
                 assert_eq!(mem, vec![118, 1, 2, 0]);
 
                 let mut mem = vec![118, 1, 1, 3];
+                let (tx, rx) = channel();
                 let lt = Eq(load, load, store);
-                assert!(lt.execute(0, &mut mem).is_ok());
+                assert!(lt.execute(0, &mut mem, &Some(rx), &mut Some(tx)).is_ok());
                 assert_eq!(mem, vec![118, 1, 1, 1]);
             }
         }
@@ -381,6 +435,7 @@ mod test {
     use crate::day2::{indirect, Error};
 
     use mopa::mopafy;
+    use std::sync::mpsc::{Receiver, Sender};
 
     mopafy!(OpCode);
 
@@ -391,7 +446,13 @@ mod test {
             Ok(Box::new(MockOutput(RefCell::new(None))))
         }
 
-        fn execute(&self, ip: isize, mem: &mut [i32]) -> Result<isize, Error> {
+        fn execute(
+            &self,
+            ip: isize,
+            mem: &mut [i32],
+            _: &Option<Receiver<i32>>,
+            _: &mut Option<Sender<i32>>,
+        ) -> Result<isize, Error> {
             *self.0.borrow_mut() = Some(indirect::load(ip + 1, mem)?);
             Ok(MockOutput::width() as isize)
         }
@@ -418,7 +479,13 @@ mod test {
             Ok(Box::new(MockInput(param)))
         }
 
-        fn execute(&self, ip: isize, mem: &mut [i32]) -> Result<isize, Error> {
+        fn execute(
+            &self,
+            ip: isize,
+            mem: &mut [i32],
+            _: &Option<Receiver<i32>>,
+            _: &mut Option<Sender<i32>>,
+        ) -> Result<isize, Error> {
             indirect::store(ip + 1, mem, self.0)?;
             Ok(MockInput::width() as isize)
         }

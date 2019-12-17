@@ -9,8 +9,6 @@ use op::term::Term;
 use op::OpCode;
 use param::ParamReg;
 
-use crate::day7::op::WiredOutput;
-
 #[derive(Debug, PartialEq, Eq)]
 pub enum Error {
     BadOpcode,
@@ -48,6 +46,12 @@ impl From<std::io::Error> for Error {
 impl From<std::num::ParseIntError> for Error {
     fn from(e: std::num::ParseIntError) -> Self {
         Error::ParseIntError(e)
+    }
+}
+
+impl From<std::sync::mpsc::RecvError> for Error {
+    fn from(_: std::sync::mpsc::RecvError) -> Self {
+        Error::InputFailed
     }
 }
 
@@ -129,7 +133,7 @@ impl IntCodeMachine {
     fn step(&mut self) -> Result<(), Error> {
         let op = self.decode(*self.mem.get(self.ip as usize).ok_or(Error::MemoryError)?)?;
         let orig_ip_val = *self.mem.get(self.ip as usize).ok_or(Error::MemoryError)?;
-        let diff = op.execute(self.ip, &mut self.mem)?;
+        let diff = op.execute(self.ip, &mut self.mem, &self.input, &mut self.output)?;
         if orig_ip_val != *self.mem.get(self.ip as usize).ok_or(Error::MemoryError)? {
             // the value under the IP was written - jump to that address
             self.ip = *self.mem.get(self.ip as usize).ok_or(Error::MemoryError)? as isize;
@@ -145,25 +149,6 @@ impl IntCodeMachine {
         loop {
             match self.step() {
                 Ok(_) => continue,
-                Err(Error::HasOutput(value)) => {
-                    if let Some(output) = &self.output {
-                        if let Err(_) = output.send(value) {
-                            break Err(Error::OutputFailed);
-                        }
-                        self.ip += WiredOutput::width() as isize;
-                    }
-                }
-                Err(Error::NeedsInput) => {
-                    // store the input in the param of the current instruction
-                    if let Some(input) = &self.input {
-                        match input.recv() {
-                            Ok(value) => {
-                                self.mem[self.ip as usize] += (value + 1) * 100;
-                            }
-                            Err(_) => break Err(Error::InputFailed),
-                        }
-                    }
-                }
                 Err(Error::Terminated) => break Ok(self.mem),
                 Err(e) => break Err(e),
             }
@@ -215,12 +200,20 @@ pub mod op {
     use super::{Error, LoadPtr, StorePtr};
     use mopa::Any;
 
+    use std::sync::mpsc::{Receiver, Sender};
+
     pub trait OpCode: std::fmt::Debug + Any {
         fn new(reg: &ParamReg, param: i32) -> Result<Box<dyn OpCode>, Error>
         where
             Self: Sized;
 
-        fn execute(&self, ip: isize, mem: &mut [i32]) -> Result<isize, Error>;
+        fn execute(
+            &self,
+            ip: isize,
+            mem: &mut [i32],
+            inp: &Option<Receiver<i32>>,
+            out: &mut Option<Sender<i32>>,
+        ) -> Result<isize, Error>;
 
         fn code() -> i32
         where
@@ -245,7 +238,13 @@ pub mod op {
                 )) as Box<dyn OpCode>)
             }
 
-            fn execute(&self, ip: isize, mem: &mut [i32]) -> Result<isize, Error> {
+            fn execute(
+                &self,
+                ip: isize,
+                mem: &mut [i32],
+                _: &Option<Receiver<i32>>,
+                _: &mut Option<Sender<i32>>,
+            ) -> Result<isize, Error> {
                 let l = self.0(ip + 1, mem)?;
                 let r = self.1(ip + 2, mem)?;
                 self.2(ip + 3, mem, l * r)?;
@@ -272,12 +271,14 @@ pub mod op {
             use super::Mul;
             use crate::day2::indirect::*;
             use crate::day2::op::OpCode;
+            use std::sync::mpsc::channel;
 
             #[test]
             fn mul() {
+                let (tx, rx) = channel();
                 let mut mem = vec![2, 0, 0, 4, 0];
                 let mul = Mul(load, load, store);
-                assert!(mul.execute(0, &mut mem).is_ok());
+                assert!(mul.execute(0, &mut mem, &Some(rx), &mut Some(tx)).is_ok());
                 assert_eq!(mem, vec![2, 0, 0, 4, 4]);
             }
         }
@@ -298,7 +299,13 @@ pub mod op {
                 )) as Box<dyn OpCode>)
             }
 
-            fn execute(&self, ip: isize, mem: &mut [i32]) -> Result<isize, Error> {
+            fn execute(
+                &self,
+                ip: isize,
+                mem: &mut [i32],
+                _: &Option<Receiver<i32>>,
+                _: &mut Option<Sender<i32>>,
+            ) -> Result<isize, Error> {
                 let l = self.0(ip + 1, mem)?;
                 let r = self.1(ip + 2, mem)?;
                 self.2(ip + 3, mem, l + r)?;
@@ -325,12 +332,14 @@ pub mod op {
             use super::Add;
             use crate::day2::indirect::*;
             use crate::day2::op::OpCode;
+            use std::sync::mpsc::channel;
 
             #[test]
             fn test_add() {
+                let (tx, rx) = channel();
                 let mut mem = vec![1, 0, 0, 4, 0];
                 let add = Add(load, load, store);
-                assert!(add.execute(0, &mut mem).is_ok());
+                assert!(add.execute(0, &mut mem, &Some(rx), &mut Some(tx)).is_ok());
                 assert_eq!(mem, vec![1, 0, 0, 4, 2]);
             }
         }
@@ -346,7 +355,13 @@ pub mod op {
                 Ok(Box::new(Term) as Box<dyn OpCode>)
             }
 
-            fn execute(&self, _ip: isize, _mem: &mut [i32]) -> Result<isize, Error> {
+            fn execute(
+                &self,
+                _ip: isize,
+                _mem: &mut [i32],
+                _: &Option<Receiver<i32>>,
+                _: &mut Option<Sender<i32>>,
+            ) -> Result<isize, Error> {
                 Err(Error::Terminated)
             }
 
