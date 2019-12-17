@@ -459,7 +459,7 @@ mod test {
     #[test]
     fn test_run_eq_ind() {
         let mem = vec![803, 9, 8, 9, 10, 9, 4, 9, 99, -1, 8];
-        let mut m = IntCodeMachine::boot(mem.clone());
+        let mut m = IntCodeMachine::boot(mem);
         m.reg_opcode(MockInput::code(), MockInput::new);
         m.reg_opcode(MockOutput::code(), MockOutput::new);
         m.reg_opcode(op::Eq::code(), op::Eq::new);
@@ -470,7 +470,7 @@ mod test {
     #[test]
     fn test_run_lt_ind() {
         let mem = vec![803, 9, 7, 9, 10, 9, 4, 9, 99, -1, 8];
-        let mut m = IntCodeMachine::boot(mem.clone());
+        let mut m = IntCodeMachine::boot(mem);
         m.reg_opcode(MockInput::code(), MockInput::new);
         m.reg_opcode(MockOutput::code(), MockOutput::new);
         m.reg_opcode(op::Lt::code(), op::Lt::new);
@@ -481,7 +481,7 @@ mod test {
     #[test]
     fn test_run_eq_imm() {
         let mem = vec![803, 3, 1108, -1, 8, 3, 4, 3, 99];
-        let mut m = IntCodeMachine::boot(mem.clone());
+        let mut m = IntCodeMachine::boot(mem);
         m.reg_param_mode(1, immediate::load, immediate::store);
         m.reg_opcode(MockInput::code(), MockInput::new);
         m.reg_opcode(MockOutput::code(), MockOutput::new);
@@ -490,7 +490,7 @@ mod test {
         assert_eq!(end_state, Ok(vec![803, 3, 1108, 1, 8, 3, 4, 3, 99]));
 
         let mem = vec![903, 3, 1108, -1, 8, 3, 4, 3, 99];
-        let mut m = IntCodeMachine::boot(mem.clone());
+        let mut m = IntCodeMachine::boot(mem);
         m.reg_param_mode(1, immediate::load, immediate::store);
         m.reg_opcode(MockInput::code(), MockInput::new);
         m.reg_opcode(MockOutput::code(), MockOutput::new);

@@ -197,7 +197,7 @@ mod test {
         );
         let mut you = VecDeque::from(you.unwrap());
         let mut santa = VecDeque::from(santa.unwrap());
-        let res = find_root(&mut you, &mut santa);
+        find_root(&mut you, &mut santa);
         assert_eq!(you.len() - 2 + santa.len() - 2, 4);
     }
 }

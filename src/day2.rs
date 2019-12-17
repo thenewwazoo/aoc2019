@@ -1,12 +1,15 @@
 use std::collections::HashMap;
 use std::fs::File;
 use std::io::{BufRead, BufReader};
+use std::sync::mpsc::*;
 
 use op::add::Add;
 use op::mul::Mul;
 use op::term::Term;
 use op::OpCode;
 use param::ParamReg;
+
+use crate::day7::op::WiredOutput;
 
 #[derive(Debug, PartialEq, Eq)]
 pub enum Error {
@@ -18,6 +21,22 @@ pub enum Error {
     IoError(std::io::ErrorKind),
     /// Could not parse number in input
     ParseIntError(std::num::ParseIntError),
+    /// Program needs input
+    NeedsInput,
+    /// Could not read from input pipe
+    InputFailed,
+    /// Program has output
+    HasOutput(i32),
+    /// Could not write to output pipe
+    OutputFailed,
+    UserInputFailed,
+    NotRunning,
+}
+
+impl<T> From<std::sync::mpsc::SendError<T>> for Error {
+    fn from(_e: std::sync::mpsc::SendError<T>) -> Self {
+        Error::UserInputFailed
+    }
 }
 
 impl From<std::io::Error> for Error {
@@ -84,6 +103,9 @@ pub struct IntCodeMachine {
     mem: Vec<i32>,
     op_map: HashMap<i32, fn(&ParamReg, i32) -> Result<Box<dyn OpCode>, Error>>,
     p_reg: ParamReg,
+    input: Option<Receiver<i32>>,
+    output: Option<Sender<i32>>,
+    user_input: Option<Sender<i32>>,
 }
 
 impl IntCodeMachine {
@@ -93,6 +115,9 @@ impl IntCodeMachine {
             mem,
             op_map: HashMap::new(),
             p_reg: ParamReg::new(),
+            input: None,
+            output: None,
+            user_input: None,
         };
         m.reg_opcode(Add::code(), Add::new);
         m.reg_opcode(Mul::code(), Mul::new);
@@ -120,6 +145,25 @@ impl IntCodeMachine {
         loop {
             match self.step() {
                 Ok(_) => continue,
+                Err(Error::HasOutput(value)) => {
+                    if let Some(output) = &self.output {
+                        if let Err(_) = output.send(value) {
+                            break Err(Error::OutputFailed);
+                        }
+                        self.ip += WiredOutput::width() as isize;
+                    }
+                }
+                Err(Error::NeedsInput) => {
+                    // store the input in the param of the current instruction
+                    if let Some(input) = &self.input {
+                        match input.recv() {
+                            Ok(value) => {
+                                self.mem[self.ip as usize] += (value + 1) * 100;
+                            }
+                            Err(_) => break Err(Error::InputFailed),
+                        }
+                    }
+                }
                 Err(Error::Terminated) => break Ok(self.mem),
                 Err(e) => break Err(e),
             }
@@ -141,6 +185,25 @@ impl IntCodeMachine {
 
     pub fn reg_param_mode(&mut self, id: i32, load: LoadPtr, store: StorePtr) {
         self.p_reg.register_mode(id, load, store);
+    }
+
+    pub fn wire_input(&mut self) -> Sender<i32> {
+        let (tx, rx) = channel();
+        self.user_input = Some(tx.clone());
+        self.input = Some(rx);
+        tx
+    }
+
+    pub fn wire_output(&mut self, tx: Sender<i32>) {
+        self.output = Some(tx);
+    }
+
+    pub fn get_input_handle(&self) -> Option<Sender<i32>> {
+        if let Some(ch) = &self.user_input {
+            Some(ch.clone())
+        } else {
+            None
+        }
     }
 }
 

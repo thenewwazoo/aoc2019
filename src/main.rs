@@ -26,6 +26,10 @@ fn main() {
             "day 6: {}",
             day6::run().unwrap_or_else(|e| format!("failure: {:?}", e))
         ),
+        "7" => println!(
+            "day 7: {}",
+            day7::run().unwrap_or_else(|e| format!("failure: {:?}", e))
+        ),
         "8" => println!(
             "day 8: {}",
             day8::run().unwrap_or_else(|e| format!("failure: {:?}", e))
