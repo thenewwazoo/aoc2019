@@ -11,8 +11,8 @@ use param::ParamReg;
 
 #[derive(Debug, PartialEq, Eq)]
 pub enum Error {
-    BadOpcode,
-    MemoryError,
+    BadOpcode(i64),
+    MemoryError(isize),
     BadParamMode,
     Terminated,
     /// I/O error
@@ -24,7 +24,7 @@ pub enum Error {
     /// Could not read from input pipe
     InputFailed,
     /// Program has output
-    HasOutput(i32),
+    HasOutput(i64),
     /// Could not write to output pipe
     OutputFailed,
     UserInputFailed,
@@ -61,7 +61,7 @@ impl std::fmt::Display for Error {
     }
 }
 
-pub fn read_comma_file(filename: &str) -> Result<Vec<i32>, Error> {
+pub fn read_comma_file(filename: &str) -> Result<Vec<i64>, Error> {
     BufReader::new(File::open(filename)?)
         .split(b',')
         .map(|s| {
@@ -70,7 +70,7 @@ pub fn read_comma_file(filename: &str) -> Result<Vec<i32>, Error> {
                 .trim_end()
                 .to_string()
         })
-        .map(|s| i32::from_str_radix(&s, 10).map_err(|e| e.into()))
+        .map(|s| i64::from_str_radix(&s, 10).map_err(|e| e.into()))
         .collect()
 }
 
@@ -104,16 +104,49 @@ pub fn run() -> Result<String, Error> {
 
 pub struct IntCodeMachine {
     ip: isize,
-    mem: Vec<i32>,
-    op_map: HashMap<i32, fn(&ParamReg, i32) -> Result<Box<dyn OpCode>, Error>>,
+    mem: Vec<i64>,
+    op_map: HashMap<i64, fn(&ParamReg, i64) -> Result<Box<dyn OpCode>, Error>>,
     p_reg: ParamReg,
-    input: Option<Receiver<i32>>,
-    output: Option<Sender<i32>>,
-    user_input: Option<Sender<i32>>,
+    input: Option<Receiver<i64>>,
+    output: Option<Sender<i64>>,
+    user_input: Option<Sender<i64>>,
+    rel_base: isize,
+}
+
+impl std::fmt::Debug for IntCodeMachine {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "ICM: ip={}, mem=[{}], rel_base={}, known_ops=[{}], known_pmodes=[{}], i?={}, o?={}",
+            self.ip,
+            self.mem
+                .iter()
+                .map(|v| v.to_string())
+                .collect::<Vec<String>>()
+                .as_slice()
+                .join(", "),
+            self.rel_base,
+            self.op_map
+                .keys()
+                .map(|v| v.to_string())
+                .collect::<Vec<String>>()
+                .as_slice()
+                .join(", "),
+            self.p_reg
+                .mode_map
+                .keys()
+                .map(|v| v.to_string())
+                .collect::<Vec<String>>()
+                .as_slice()
+                .join(", "),
+            if self.input.is_some() { "y" } else { "n" },
+            if self.output.is_some() { "y" } else { "n" },
+        )
+    }
 }
 
 impl IntCodeMachine {
-    pub fn boot(mem: Vec<i32>) -> Self {
+    pub fn boot(mem: Vec<i64>) -> Self {
         let mut m = IntCodeMachine {
             ip: 0,
             mem,
@@ -122,6 +155,7 @@ impl IntCodeMachine {
             input: None,
             output: None,
             user_input: None,
+            rel_base: 0,
         };
         m.reg_opcode(Add::code(), Add::new);
         m.reg_opcode(Mul::code(), Mul::new);
@@ -131,59 +165,110 @@ impl IntCodeMachine {
     }
 
     fn step(&mut self) -> Result<(), Error> {
-        let op = self.decode(*self.mem.get(self.ip as usize).ok_or(Error::MemoryError)?)?;
-        let orig_ip_val = *self.mem.get(self.ip as usize).ok_or(Error::MemoryError)?;
-        let diff = op.execute(self.ip, &mut self.mem, &self.input, &mut self.output)?;
-        if orig_ip_val != *self.mem.get(self.ip as usize).ok_or(Error::MemoryError)? {
+        let op = self.decode(
+            *self
+                .mem
+                .get(self.ip as usize)
+                .ok_or(Error::MemoryError(self.ip))?,
+        )?;
+        let orig_ip_val = *self
+            .mem
+            .get(self.ip as usize)
+            .ok_or(Error::MemoryError(self.ip))?;
+        let diff = op.execute(
+            self.ip,
+            &mut self.mem,
+            &self.input,
+            &mut self.output,
+            &mut self.rel_base,
+        )?;
+
+        println!("{:?}\n", &op);
+        /*
+        println!(
+            "{:?}\t{}\n",
+            &op,
+            self.mem[self.ip as usize..(self.ip + 4) as usize]
+                .iter()
+                .map(|v| format!("{}", *v))
+                .collect::<Vec<String>>()
+                .as_slice()
+                .join(" ")
+        );
+        */
+
+        if orig_ip_val
+            != *self
+                .mem
+                .get(self.ip as usize)
+                .ok_or(Error::MemoryError(self.ip))?
+        {
             // the value under the IP was written - jump to that address
-            self.ip = *self.mem.get(self.ip as usize).ok_or(Error::MemoryError)? as isize;
+            self.ip = *self
+                .mem
+                .get(self.ip as usize)
+                .ok_or(Error::MemoryError(self.ip))? as isize;
         } else {
             self.ip += diff;
         }
+        // dbg!(&op, orig_ip_val, diff, self.ip);
 
-        assert!(self.ip > 0);
-        Ok(())
+        if self.ip >= 0 {
+            Ok(())
+        } else {
+            // dbg!(self.ip);
+            Err(Error::MemoryError(self.ip))
+        }
     }
 
-    pub fn run(mut self) -> Result<Vec<i32>, Error> {
+    pub fn run(mut self) -> Result<Vec<i64>, Error> {
         loop {
             match self.step() {
-                Ok(_) => continue,
-                Err(Error::Terminated) => break Ok(self.mem),
-                Err(e) => break Err(e),
+                Ok(_) => {
+                    // dbg!(&self);
+                    continue;
+                }
+                Err(Error::Terminated) => {
+                    // dbg!(&self);
+                    break Ok(self.mem);
+                }
+                Err(e) => {
+                    // dbg!(&self);
+                    break Err(e);
+                }
             }
         }
     }
 
-    pub fn decode(&mut self, opcode: i32) -> Result<Box<dyn OpCode>, Error> {
+    pub fn decode(&mut self, opcode: i64) -> Result<Box<dyn OpCode>, Error> {
         let (op, param) = (opcode % 100, opcode / 100);
-        self.op_map.get(&op).ok_or(Error::BadOpcode)?(&self.p_reg, param)
+        self.op_map.get(&op).ok_or(Error::BadOpcode(op))?(&self.p_reg, param)
     }
 
     pub fn reg_opcode(
         &mut self,
-        opcode: i32,
-        ctor: fn(&ParamReg, i32) -> Result<Box<dyn OpCode>, Error>,
+        opcode: i64,
+        ctor: fn(&ParamReg, i64) -> Result<Box<dyn OpCode>, Error>,
     ) {
         self.op_map.insert(opcode, ctor);
     }
 
-    pub fn reg_param_mode(&mut self, id: i32, load: LoadPtr, store: StorePtr) {
+    pub fn reg_param_mode(&mut self, id: i64, load: LoadPtr, store: StorePtr) {
         self.p_reg.register_mode(id, load, store);
     }
 
-    pub fn wire_input(&mut self) -> Sender<i32> {
+    pub fn wire_input(&mut self) -> Sender<i64> {
         let (tx, rx) = channel();
         self.user_input = Some(tx.clone());
         self.input = Some(rx);
         tx
     }
 
-    pub fn wire_output(&mut self, tx: Sender<i32>) {
+    pub fn wire_output(&mut self, tx: Sender<i64>) {
         self.output = Some(tx);
     }
 
-    pub fn get_input_handle(&self) -> Option<Sender<i32>> {
+    pub fn get_input_handle(&self) -> Option<Sender<i64>> {
         if let Some(ch) = &self.user_input {
             Some(ch.clone())
         } else {
@@ -192,8 +277,8 @@ impl IntCodeMachine {
     }
 }
 
-pub type LoadPtr = fn(isize, &[i32]) -> Result<i32, Error>;
-pub type StorePtr = fn(isize, &mut [i32], i32) -> Result<(), Error>;
+pub type LoadPtr = fn(isize, &[i64], isize) -> Result<i64, Error>;
+pub type StorePtr = fn(isize, &mut [i64], i64, isize) -> Result<(), Error>;
 
 pub mod op {
     use super::param::{decompose_param, ParamReg};
@@ -203,19 +288,20 @@ pub mod op {
     use std::sync::mpsc::{Receiver, Sender};
 
     pub trait OpCode: std::fmt::Debug + Any {
-        fn new(reg: &ParamReg, param: i32) -> Result<Box<dyn OpCode>, Error>
+        fn new(reg: &ParamReg, param: i64) -> Result<Box<dyn OpCode>, Error>
         where
             Self: Sized;
 
         fn execute(
             &self,
             ip: isize,
-            mem: &mut [i32],
-            inp: &Option<Receiver<i32>>,
-            out: &mut Option<Sender<i32>>,
+            mem: &mut [i64],
+            inp: &Option<Receiver<i64>>,
+            out: &mut Option<Sender<i64>>,
+            rel_base: &mut isize,
         ) -> Result<isize, Error>;
 
-        fn code() -> i32
+        fn code() -> i64
         where
             Self: Sized;
 
@@ -229,7 +315,7 @@ pub mod op {
 
         pub struct Mul(LoadPtr, LoadPtr, StorePtr);
         impl OpCode for Mul {
-            fn new(reg: &ParamReg, param: i32) -> Result<Box<dyn OpCode>, Error> {
+            fn new(reg: &ParamReg, param: i64) -> Result<Box<dyn OpCode>, Error> {
                 let ps = decompose_param(param, Mul::width() as usize);
                 Ok(Box::new(Mul(
                     reg.get(ps[0])?.load,
@@ -241,17 +327,20 @@ pub mod op {
             fn execute(
                 &self,
                 ip: isize,
-                mem: &mut [i32],
-                _: &Option<Receiver<i32>>,
-                _: &mut Option<Sender<i32>>,
+                mem: &mut [i64],
+                _: &Option<Receiver<i64>>,
+                _: &mut Option<Sender<i64>>,
+                rel_base: &mut isize,
             ) -> Result<isize, Error> {
-                let l = self.0(ip + 1, mem)?;
-                let r = self.1(ip + 2, mem)?;
-                self.2(ip + 3, mem, l * r)?;
+                let l = self.0(ip + 1, mem, *rel_base)?;
+                let r = self.1(ip + 2, mem, *rel_base)?;
+                let result = l * r;
+                println!("{} * {} = {}", l, r, result);
+                self.2(ip + 3, mem, result, *rel_base)?;
                 Ok(Mul::width() as isize)
             }
 
-            fn code() -> i32 {
+            fn code() -> i64 {
                 2
             }
 
@@ -278,7 +367,9 @@ pub mod op {
                 let (tx, rx) = channel();
                 let mut mem = vec![2, 0, 0, 4, 0];
                 let mul = Mul(load, load, store);
-                assert!(mul.execute(0, &mut mem, &Some(rx), &mut Some(tx)).is_ok());
+                assert!(mul
+                    .execute(0, &mut mem, &Some(rx), &mut Some(tx), &mut 0)
+                    .is_ok());
                 assert_eq!(mem, vec![2, 0, 0, 4, 4]);
             }
         }
@@ -290,7 +381,7 @@ pub mod op {
         pub struct Add(pub LoadPtr, pub LoadPtr, pub StorePtr);
 
         impl OpCode for Add {
-            fn new(reg: &ParamReg, param: i32) -> Result<Box<dyn OpCode>, Error> {
+            fn new(reg: &ParamReg, param: i64) -> Result<Box<dyn OpCode>, Error> {
                 let ps = decompose_param(param, Add::width() as usize);
                 Ok(Box::new(Add(
                     reg.get(ps[0])?.load,
@@ -302,17 +393,20 @@ pub mod op {
             fn execute(
                 &self,
                 ip: isize,
-                mem: &mut [i32],
-                _: &Option<Receiver<i32>>,
-                _: &mut Option<Sender<i32>>,
+                mem: &mut [i64],
+                _: &Option<Receiver<i64>>,
+                _: &mut Option<Sender<i64>>,
+                rel_base: &mut isize,
             ) -> Result<isize, Error> {
-                let l = self.0(ip + 1, mem)?;
-                let r = self.1(ip + 2, mem)?;
-                self.2(ip + 3, mem, l + r)?;
+                let l = self.0(ip + 1, mem, *rel_base)?;
+                let r = self.1(ip + 2, mem, *rel_base)?;
+                let result = l + r;
+                println!("{} + {} = {}", l, r, result);
+                self.2(ip + 3, mem, result, *rel_base)?;
                 Ok(Add::width() as isize)
             }
 
-            fn code() -> i32 {
+            fn code() -> i64 {
                 1
             }
 
@@ -339,7 +433,9 @@ pub mod op {
                 let (tx, rx) = channel();
                 let mut mem = vec![1, 0, 0, 4, 0];
                 let add = Add(load, load, store);
-                assert!(add.execute(0, &mut mem, &Some(rx), &mut Some(tx)).is_ok());
+                assert!(add
+                    .execute(0, &mut mem, &Some(rx), &mut Some(tx), &mut 0)
+                    .is_ok());
                 assert_eq!(mem, vec![1, 0, 0, 4, 2]);
             }
         }
@@ -351,21 +447,23 @@ pub mod op {
         pub struct Term;
 
         impl OpCode for Term {
-            fn new(_reg: &ParamReg, _param: i32) -> Result<Box<dyn OpCode>, Error> {
+            fn new(_reg: &ParamReg, _param: i64) -> Result<Box<dyn OpCode>, Error> {
                 Ok(Box::new(Term) as Box<dyn OpCode>)
             }
 
             fn execute(
                 &self,
                 _ip: isize,
-                _mem: &mut [i32],
-                _: &Option<Receiver<i32>>,
-                _: &mut Option<Sender<i32>>,
+                _mem: &mut [i64],
+                _: &Option<Receiver<i64>>,
+                _: &mut Option<Sender<i64>>,
+                _: &mut isize,
             ) -> Result<isize, Error> {
+                println!("TERM");
                 Err(Error::Terminated)
             }
 
-            fn code() -> i32 {
+            fn code() -> i64 {
                 99
             }
 
@@ -385,19 +483,19 @@ pub mod op {
 pub mod indirect {
     use super::Error;
 
-    pub fn load(ptr: isize, mem: &[i32]) -> Result<i32, Error> {
+    pub fn load(ptr: isize, mem: &[i64], _: isize) -> Result<i64, Error> {
         assert!(ptr >= 0);
-        let ptr = ptr as usize;
-        Ok(*mem
-            .get(*mem.get(ptr).ok_or(Error::MemoryError)? as usize)
-            .ok_or(Error::MemoryError)?)
+        let iptr: isize = *mem.get(ptr as usize).ok_or(Error::MemoryError(ptr))? as isize;
+        let value = *mem.get(iptr as usize).ok_or(Error::MemoryError(ptr))?;
+        println!("IND LD @{} {}", iptr, value);
+        Ok(value)
     }
 
-    pub fn store(ptr: isize, mem: &mut [i32], value: i32) -> Result<(), Error> {
+    pub fn store(ptr: isize, mem: &mut [i64], value: i64, _: isize) -> Result<(), Error> {
         assert!(ptr >= 0);
-        let ptr = ptr as usize;
-        *mem.get_mut(*mem.get(ptr).ok_or(Error::MemoryError)? as usize)
-            .ok_or(Error::MemoryError)? = value;
+        let iptr = *mem.get(ptr as usize).ok_or(Error::MemoryError(ptr))? as isize;
+        *mem.get_mut(iptr as usize).ok_or(Error::MemoryError(ptr))? = value;
+        println!("IND STO @{} {}", iptr, value);
         Ok(())
     }
 
@@ -408,13 +506,13 @@ pub mod indirect {
         #[test]
         fn indir_get() {
             let mem = vec![12, 0];
-            assert_eq!(load(1, &mem), Ok(12));
+            assert_eq!(load(1, &mem, 0), Ok(12));
         }
 
         #[test]
         fn indir_store() {
             let mut mem = vec![12, 0];
-            assert!(store(1, &mut mem, 42).is_ok());
+            assert!(store(1, &mut mem, 42, 0).is_ok());
             assert_eq!(mem, vec![42, 0]);
         }
     }
@@ -431,7 +529,7 @@ pub mod param {
     use std::collections::HashMap;
 
     pub struct ParamReg {
-        mode_map: HashMap<i32, LSPair>,
+        pub mode_map: HashMap<i64, LSPair>,
     }
 
     impl ParamReg {
@@ -441,16 +539,16 @@ pub mod param {
             }
         }
 
-        pub fn get(&self, mode: i32) -> Result<&LSPair, Error> {
+        pub fn get(&self, mode: i64) -> Result<&LSPair, Error> {
             self.mode_map.get(&mode).ok_or(Error::BadParamMode)
         }
 
-        pub fn register_mode(&mut self, id: i32, load: LoadPtr, store: StorePtr) {
+        pub fn register_mode(&mut self, id: i64, load: LoadPtr, store: StorePtr) {
             self.mode_map.insert(id, LSPair { load, store });
         }
     }
 
-    pub fn decompose_param(mut code: i32, width: usize) -> Vec<i32> {
+    pub fn decompose_param(mut code: i64, width: usize) -> Vec<i64> {
         let mut v = Vec::new();
         while code > 0 {
             v.push(code % 10);

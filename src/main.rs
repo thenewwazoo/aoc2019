@@ -34,6 +34,10 @@ fn main() {
             "day 8: {}",
             day8::run().unwrap_or_else(|e| format!("failure: {:?}", e))
         ),
+        "9" => println!(
+            "day 9: {}",
+            day9::run().unwrap_or_else(|e| format!("failure: {:?}", e))
+        ),
         _ => unimplemented!(),
     }
 }

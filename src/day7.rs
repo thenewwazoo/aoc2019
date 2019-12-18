@@ -7,6 +7,18 @@ use std::sync::mpsc::*;
 
 use permute;
 
+pub fn build_machine(mem: Vec<i64>) -> IntCodeMachine {
+    let mut m = IntCodeMachine::boot(mem);
+    m.reg_opcode(WiredOutput::code(), WiredOutput::new);
+    m.reg_opcode(WiredInput::code(), WiredInput::new);
+    m.reg_opcode(day5::op::Jnz::code(), day5::op::Jnz::new);
+    m.reg_opcode(day5::op::Jz::code(), day5::op::Jz::new);
+    m.reg_opcode(day5::op::Eq::code(), day5::op::Eq::new);
+    m.reg_opcode(day5::op::Lt::code(), day5::op::Lt::new);
+    m.reg_param_mode(1, immediate::load, immediate::store);
+    m
+}
+
 pub fn run() -> Result<String, Error> {
     let data = read_comma_file("input/day7.txt")?;
 
@@ -14,7 +26,7 @@ pub fn run() -> Result<String, Error> {
         .map(|seq| {
             let mut cluster = Cluster::build(5, &data.clone());
             cluster.start().unwrap();
-            let seq: Vec<i32> = seq
+            let seq: Vec<i64> = seq
                 .enumerate()
                 .map(|(i, v)| {
                     cluster.input(i, *v).unwrap();
@@ -31,15 +43,17 @@ pub fn run() -> Result<String, Error> {
         .max_by_key(|r| r.1)
         .unwrap();
 
-    let result_2 = permute::permutations_of(&[9,8,7,6,5])
+    let result_2 = permute::permutations_of(&[9, 8, 7, 6, 5])
         .map(|seq| {
             let mut cluster = Cluster::build(5, &data);
             cluster.start().unwrap();
-            let seq: Vec<i32> = seq.enumerate().map(|(i, v)| {
-                cluster.input(i, *v).unwrap();
-                *v
-            })
-            .collect();
+            let seq: Vec<i64> = seq
+                .enumerate()
+                .map(|(i, v)| {
+                    cluster.input(i, *v).unwrap();
+                    *v
+                })
+                .collect();
 
             let mut next_input = 0;
             while let Ok(_) = cluster.input(0, next_input) {
@@ -51,23 +65,25 @@ pub fn run() -> Result<String, Error> {
         .max_by_key(|r| r.1)
         .unwrap();
 
-
-    Ok(format!("{:?}, {} | {:?} {}", result.0, result.1, result_2.0, result_2.1))
+    Ok(format!(
+        "{:?}, {} | {:?} {}",
+        result.0, result.1, result_2.0, result_2.1
+    ))
 }
 
 pub struct Cluster {
     /// the IntCode machines, each with its output wired to the input of the next
     machines: Option<Vec<IntCodeMachine>>,
     /// the final output
-    output: Receiver<i32>,
+    output: Receiver<i64>,
     /// an input for each machine
-    inputs: Vec<Sender<i32>>,
+    inputs: Vec<Sender<i64>>,
     /// thread handles
-    t_handles: Option<Vec<std::thread::JoinHandle<Result<Vec<i32>, Error>>>>,
+    t_handles: Option<Vec<std::thread::JoinHandle<Result<Vec<i64>, Error>>>>,
 }
 
 impl Cluster {
-    pub fn input(&mut self, id: usize, value: i32) -> Result<(), Error> {
+    pub fn input(&mut self, id: usize, value: i64) -> Result<(), Error> {
         Ok(self
             .inputs
             .get(id)
@@ -75,13 +91,13 @@ impl Cluster {
             .send(value)?)
     }
 
-    pub fn read_output(&mut self) -> Option<i32> {
+    pub fn read_output(&mut self) -> Option<i64> {
         self.output
             .recv_timeout(std::time::Duration::from_secs(1))
             .ok()
     }
 
-    pub fn build(num: usize, mem: &[i32]) -> Self {
+    pub fn build(num: usize, mem: &[i64]) -> Self {
         let mut machines = vec![build_module(mem.to_vec())];
         let mut terminals = Vec::new();
 
@@ -118,7 +134,7 @@ impl Cluster {
         }
     }
 
-    pub fn finish(&mut self) -> Result<Vec<Vec<i32>>, Error> {
+    pub fn finish(&mut self) -> Result<Vec<Vec<i64>>, Error> {
         if let Some(handles) = self.t_handles.take() {
             handles
                 .into_iter()
@@ -130,7 +146,7 @@ impl Cluster {
     }
 }
 
-pub(crate) fn build_module(mem: Vec<i32>) -> IntCodeMachine {
+pub(crate) fn build_module(mem: Vec<i64>) -> IntCodeMachine {
     let mut m = IntCodeMachine::boot(mem);
     m.reg_opcode(WiredOutput::code(), WiredOutput::new);
     m.reg_opcode(WiredInput::code(), WiredInput::new);
@@ -143,28 +159,29 @@ pub(crate) fn build_module(mem: Vec<i32>) -> IntCodeMachine {
 }
 
 pub mod op {
-    use crate::day2::indirect;
     use crate::day2::op::OpCode;
-    use crate::day2::param::ParamReg;
-    use crate::day2::Error;
+    use crate::day2::param::{decompose_param, ParamReg};
+    use crate::day2::{Error, LoadPtr, StorePtr};
 
     use std::sync::mpsc::{Receiver, Sender};
 
-    pub struct WiredInput;
+    pub struct WiredInput(StorePtr);
     impl OpCode for WiredInput {
-        fn new(_reg: &ParamReg, _param: i32) -> Result<Box<dyn OpCode>, Error> {
-            Ok(Box::new(WiredInput))
+        fn new(reg: &ParamReg, param: i64) -> Result<Box<dyn OpCode>, Error> {
+            let ps = decompose_param(param, WiredInput::width() as usize);
+            Ok(Box::new(WiredInput(reg.get(ps[0])?.store)))
         }
 
         fn execute(
             &self,
             ip: isize,
-            mem: &mut [i32],
-            inp: &Option<Receiver<i32>>,
-            _: &mut Option<Sender<i32>>,
+            mem: &mut [i64],
+            inp: &Option<Receiver<i64>>,
+            _: &mut Option<Sender<i64>>,
+            rel_base: &mut isize,
         ) -> Result<isize, Error> {
             let value = inp.as_ref().ok_or(Error::InputFailed)?.recv()?;
-            indirect::store(ip + 1, mem, value)?;
+            self.0(ip + 1, mem, value, *rel_base)?;
             Ok(WiredInput::width() as isize)
         }
 
@@ -172,7 +189,7 @@ pub mod op {
             2
         }
 
-        fn code() -> i32 {
+        fn code() -> i64 {
             3
         }
     }
@@ -183,22 +200,23 @@ pub mod op {
         }
     }
 
-    pub struct WiredOutput;
+    pub struct WiredOutput(LoadPtr);
     impl OpCode for WiredOutput {
-        fn new(_reg: &ParamReg, _param: i32) -> Result<Box<dyn OpCode>, Error> {
-            Ok(Box::new(WiredOutput))
+        fn new(reg: &ParamReg, param: i64) -> Result<Box<dyn OpCode>, Error> {
+            let ps = decompose_param(param, WiredOutput::width() as usize);
+            Ok(Box::new(WiredOutput(reg.get(ps[0])?.load)))
         }
 
         fn execute(
             &self,
             ip: isize,
-            mem: &mut [i32],
-            _: &Option<Receiver<i32>>,
-            out: &mut Option<Sender<i32>>,
+            mem: &mut [i64],
+            _: &Option<Receiver<i64>>,
+            out: &mut Option<Sender<i64>>,
+            rel_base: &mut isize,
         ) -> Result<isize, Error> {
-            out.as_ref()
-                .ok_or(Error::OutputFailed)?
-                .send(indirect::load(ip + 1, mem)?)?;
+            let value = self.0(ip + 1, mem, *rel_base)?;
+            out.as_ref().ok_or(Error::OutputFailed)?.send(value)?;
             Ok(WiredOutput::width() as isize)
         }
 
@@ -206,7 +224,7 @@ pub mod op {
             2
         }
 
-        fn code() -> i32 {
+        fn code() -> i64 {
             4
         }
     }
@@ -219,7 +237,7 @@ pub mod op {
 }
 
 #[cfg(test)]
-mod test {
+mod day7_test {
     use super::op::*;
     use super::*;
     use crate::day2::op::OpCode;
@@ -356,9 +374,11 @@ mod test {
 
     #[test]
     fn test_fb_2() {
-        let data = vec![3,52,1001,52,-5,52,3,53,1,52,56,54,1007,54,5,55,1005,55,26,1001,54,
--5,54,1105,1,12,1,53,54,53,1008,54,0,55,1001,55,1,55,2,53,55,53,4,
-53,1001,56,-1,56,1005,56,6,99,0,0,0,0,10];
+        let data = vec![
+            3, 52, 1001, 52, -5, 52, 3, 53, 1, 52, 56, 54, 1007, 54, 5, 55, 1005, 55, 26, 1001, 54,
+            -5, 54, 1105, 1, 12, 1, 53, 54, 53, 1008, 54, 0, 55, 1001, 55, 1, 55, 2, 53, 55, 53, 4,
+            53, 1001, 56, -1, 56, 1005, 56, 6, 99, 0, 0, 0, 0, 10,
+        ];
 
         let mut cluster = Cluster::build(5, &data);
         cluster.start().unwrap();
