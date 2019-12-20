@@ -4,13 +4,27 @@ use std::thread::spawn;
 
 use crate::day9::build_machine;
 
-type Point = (isize, isize);
+pub type Point = (i64, i64);
 
 #[derive(Clone, Copy, Debug)]
 enum Color {
     Black = 0,
     White = 1,
-    Clear = 2,
+}
+
+impl Default for Color {
+    fn default() -> Self {
+        Color::Black
+    }
+}
+
+impl std::fmt::Display for Color {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", match self {
+            Color::Black => " ",
+            Color::White => "#",
+        })
+    }
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -97,23 +111,28 @@ pub fn run() -> Result<String, ()> {
     }
 
     let _end_mem = t_h.join().unwrap();
-    print_map(&map);
+    print_map(&map, true);
     Ok(format!("{}", map.len()))
 }
 
-fn print_map(map: &HashMap<Point, Color>) {
+pub fn print_map<T>(map: &HashMap<Point, T>, inverted: bool)
+where
+    T: std::fmt::Debug + std::fmt::Display + Default + Copy
+{
     let (max_y, max_x) = (map.keys().map(|p| p.1).max().unwrap(), map.keys().map(|p| p.0).max().unwrap());
     let (min_y, min_x) = (map.keys().map(|p| p.1).min().unwrap(), map.keys().map(|p| p.0).min().unwrap());
 
     println!("({}, {}) -> ({}, {})", min_x, min_y, max_x, max_y);
     println!("{:?}", &map);
-    for y in (min_y..=max_y).rev() {
+    for y in {
+        if inverted {
+            (min_y..=max_y).rev().collect::<Vec<i64>>().into_iter()
+        } else {
+            (min_y..=max_y).collect::<Vec<i64>>().into_iter()
+        }
+    }{
         for x in min_x..=max_x {
-            print!("{}", match map.get(&(x, y)).or(Some(&Color::Black)).unwrap() {
-                Color::Black => ".",
-                Color::White => "#",
-                Color::Clear => " ",
-            });
+            print!("{}", map.get(&(x, y)).cloned().or(Some(Default::default())).unwrap());
         }
         println!("");
     }
