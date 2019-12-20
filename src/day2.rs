@@ -225,16 +225,17 @@ impl IntCodeMachine {
         loop {
             match self.step() {
                 Ok(_) => {
-                    // dbg!(&self);
+                    //dbg!(&self);
                     continue;
                 }
                 Err(Error::Terminated) => {
-                    // dbg!(&self);
+                    //dbg!(&self);
+                    println!("Terminated gracefully.");
                     break Ok(self.mem);
                 }
                 Err(e) => {
-                    // dbg!(&self);
-                    break Err(e);
+                    dbg!(&self);
+                    break dbg!(Err(e));
                 }
             }
         }

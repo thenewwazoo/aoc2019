@@ -9,3 +9,4 @@ edition = "2018"
 [dependencies]
 mopa = "0.2.2"
 permute = "0.1.0"
+num = "0.2.0"

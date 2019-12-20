@@ -101,7 +101,6 @@ pub mod rel {
             let r = store(1, &mut mem, -1, -1);
             assert_eq!(r, Ok(()));
             assert_eq!(mem, [-1, 1]);
-
         }
     }
 }
@@ -153,9 +152,9 @@ pub mod op {
 
     #[cfg(test)]
     mod test {
-        use crate::day9::build_machine;
         use super::*;
         use crate::day5::immediate;
+        use crate::day9::build_machine;
 
         #[test]
         fn moverel() {
