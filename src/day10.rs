@@ -1,3 +1,4 @@
+#![allow(dead_code)]
 use std::collections::{HashMap, HashSet};
 use std::error::Error;
 use std::fs::File;
@@ -22,7 +23,7 @@ pub fn find_best(map: &mut Ubermap) -> (Point, usize) {
             // get every point in the grid that's on the line described by the two points
             let ongrid_pts = get_grid_points_bw(node, *other, map_extent);
             //if ongrid_pts.len() < 2 {
-                println!("ongrid {:?} -> {:?} : {:?}\n", &node, &other, &ongrid_pts);
+            println!("ongrid {:?} -> {:?} : {:?}\n", &node, &other, &ongrid_pts);
             //}
 
             // find every spot on that line that's occupied
@@ -40,7 +41,9 @@ pub fn find_best(map: &mut Ubermap) -> (Point, usize) {
 
                     let mut j: isize = i as isize - 2;
                     while j >= 0 {
-                        map.get_mut(&occ[i]).unwrap().remove(occ.get(j as usize).unwrap());
+                        map.get_mut(&occ[i])
+                            .unwrap()
+                            .remove(occ.get(j as usize).unwrap());
                         j -= 1;
                     }
                 }
@@ -85,11 +88,13 @@ fn parse_map(lines: Vec<String>) -> Result<Ubermap, Box<dyn Error>> {
 }
 
 fn get_map_extents(map: &Ubermap) -> Point {
-    (map.keys().map(|p| p.1).max().unwrap(), map.keys().map(|p| p.0).max().unwrap())
+    (
+        map.keys().map(|p| p.1).max().unwrap(),
+        map.keys().map(|p| p.0).max().unwrap(),
+    )
 }
 
 pub fn run() -> Result<String, Box<dyn Error>> {
-
     Ok(String::new())
 }
 
@@ -105,30 +110,22 @@ fn get_grid_points_bw(origin: Point, end: Point, map_corner: Point) -> Vec<Point
     let mut pts: Vec<Point> = get_grid_points(
         origin.0,
         origin.1,
-        if slope.rise > 0 {
-            &slope
-        } else {
-            &inv_slope
-        },
+        if slope.rise > 0 { &slope } else { &inv_slope },
         map_corner.0,
-        map_corner.1
+        map_corner.1,
     )
-        .into_iter()
-        .chain(
-            get_grid_points(
-                origin.0,
-                origin.1,
-                if slope.rise <= 0 {
-                    &slope
-                } else {
-                    &inv_slope
-                },
-                map_corner.1,
-                map_corner.1,
-            )
-            .into_iter()
+    .into_iter()
+    .chain(
+        get_grid_points(
+            origin.0,
+            origin.1,
+            if slope.rise <= 0 { &slope } else { &inv_slope },
+            map_corner.1,
+            map_corner.1,
         )
-        .collect();
+        .into_iter(),
+    )
+    .collect();
     pts.dedup();
     pts
 }
@@ -155,8 +152,8 @@ fn print_map(map: &Ubermap) {
     for y in 0..=max_y {
         for x in 0..=max_x {
             match map.get(&(x, y)) {
-                Some(v) => print!("{:2} ", v.len()-1),
-                None =>    print!(" . "),
+                Some(v) => print!("{:2} ", v.len() - 1),
+                None => print!(" . "),
             }
         }
         println!("");
@@ -165,18 +162,31 @@ fn print_map(map: &Ubermap) {
 }
 
 fn find_occupied_points(grid_pts: &[Point], map: &Ubermap) -> Vec<Point> {
-    let mut s: Vec<Point> = grid_pts.iter().filter(|p| map.contains_key(p)).cloned().collect();
+    let mut s: Vec<Point> = grid_pts
+        .iter()
+        .filter(|p| map.contains_key(p))
+        .cloned()
+        .collect();
     s.sort_by_key(|p| p.0 + p.1);
     s
 }
 
-#[derive(Debug)]
-struct Slope {
+#[derive(Debug, Default)]
+pub struct Slope {
     pub rise: i64,
     pub run: i64,
 }
 
 impl Slope {
+    pub fn new(rise: i64, run: i64) -> Self {
+        let _gcd = gcd(rise, run);
+        if _gcd == 0 {
+            Slope { rise: 0, run: 0 }
+        } else {
+            Slope::from((rise / _gcd, run / _gcd))
+        }
+    }
+
     pub fn reverse(&self) -> Self {
         Slope {
             rise: self.rise * -1,
@@ -201,7 +211,7 @@ mod test {
         ".....\n",    //   |
         "#####\n",    //   |
         "....#\n",    //   |
-        "...##\n");   //   v
+        "...##\n"); //   v
 
     #[rustfmt::skip]
     const M1_DATA: &str = concat!(
@@ -236,7 +246,7 @@ mod test {
         let mut map = parse_map(SM_DATA.lines().map(str::to_string).collect()).unwrap();
         let best = find_best(&mut map);
         print_map(&map);
-        assert_eq!(best, ((3,4), 8));
+        assert_eq!(best, ((3, 4), 8));
     }
 
     #[test]
@@ -244,7 +254,7 @@ mod test {
         let mut map = parse_map(M1_DATA.lines().map(str::to_string).collect()).unwrap();
         let best = find_best(&mut map);
         print_map(&map);
-        assert_eq!(best, ((5,8), 33));
+        assert_eq!(best, ((5, 8), 33));
     }
 
     #[test]
@@ -252,7 +262,7 @@ mod test {
         let mut map = parse_map(M2_DATA.lines().map(str::to_string).collect()).unwrap();
         let best = find_best(&mut map);
         print_map(&map);
-        assert_eq!(best, ((1,2), 35));
+        assert_eq!(best, ((1, 2), 35));
     }
 
     #[test]
@@ -262,28 +272,43 @@ mod test {
         assert_eq!((max_x, max_y), (4, 4));
 
         assert_eq!(
-            find_occupied_points(&get_grid_points(0, 0, &Slope{ rise: 1, run: 0 }, max_x, max_y), &map),
+            find_occupied_points(
+                &get_grid_points(0, 0, &Slope { rise: 1, run: 0 }, max_x, max_y),
+                &map
+            ),
             vec![(0, 2)],
         );
 
         assert_eq!(
-            find_occupied_points(&get_grid_points(0, 0, &Slope{ rise: 1, run: 1 }, max_x, max_y), &map),
-            vec![(2,2), (4,4)],
+            find_occupied_points(
+                &get_grid_points(0, 0, &Slope { rise: 1, run: 1 }, max_x, max_y),
+                &map
+            ),
+            vec![(2, 2), (4, 4)],
         );
 
         assert_eq!(
-            find_occupied_points(&get_grid_points(0, 1, &Slope{ rise: 0, run: 1 }, max_x, max_y), &map),
+            find_occupied_points(
+                &get_grid_points(0, 1, &Slope { rise: 0, run: 1 }, max_x, max_y),
+                &map
+            ),
             vec![],
         );
 
         assert_eq!(
-            find_occupied_points(&get_grid_points(0, 2, &Slope{ rise: 0, run: 1 }, max_x, max_y), &map),
-            vec![(0,2), (1,2), (2,2), (3,2), (4,2)]
+            find_occupied_points(
+                &get_grid_points(0, 2, &Slope { rise: 0, run: 1 }, max_x, max_y),
+                &map
+            ),
+            vec![(0, 2), (1, 2), (2, 2), (3, 2), (4, 2)]
         );
 
         assert_eq!(
-            find_occupied_points(&get_grid_points(0, 1, &Slope{ rise: 1, run: 2 }, max_x, max_y), &map),
-            vec![(2,2), (4,3)],
+            find_occupied_points(
+                &get_grid_points(0, 1, &Slope { rise: 1, run: 2 }, max_x, max_y),
+                &map
+            ),
+            vec![(2, 2), (4, 3)],
         );
     }
 
@@ -299,5 +324,4 @@ mod test {
             vec![(0, 0), (1, 2)]
         );
     }
-
 }

@@ -183,7 +183,7 @@ impl IntCodeMachine {
             &mut self.rel_base,
         )?;
 
-        println!("{:?}\n", &op);
+        debug!("{:?}\n", &op);
         /*
         println!(
             "{:?}\t{}\n",
@@ -230,7 +230,7 @@ impl IntCodeMachine {
                 }
                 Err(Error::Terminated) => {
                     //dbg!(&self);
-                    println!("Terminated gracefully.");
+                    info!("Terminated gracefully.");
                     break Ok(self.mem);
                 }
                 Err(e) => {
@@ -336,7 +336,7 @@ pub mod op {
                 let l = self.0(ip + 1, mem, *rel_base)?;
                 let r = self.1(ip + 2, mem, *rel_base)?;
                 let result = l * r;
-                println!("{} * {} = {}", l, r, result);
+                debug!("{} * {} = {}", l, r, result);
                 self.2(ip + 3, mem, result, *rel_base)?;
                 Ok(Mul::width() as isize)
             }
@@ -402,7 +402,7 @@ pub mod op {
                 let l = self.0(ip + 1, mem, *rel_base)?;
                 let r = self.1(ip + 2, mem, *rel_base)?;
                 let result = l + r;
-                println!("{} + {} = {}", l, r, result);
+                debug!("{} + {} = {}", l, r, result);
                 self.2(ip + 3, mem, result, *rel_base)?;
                 Ok(Add::width() as isize)
             }
@@ -460,7 +460,7 @@ pub mod op {
                 _: &mut Option<Sender<i64>>,
                 _: &mut isize,
             ) -> Result<isize, Error> {
-                println!("TERM");
+                debug!("TERM");
                 Err(Error::Terminated)
             }
 
@@ -488,7 +488,7 @@ pub mod indirect {
         assert!(ptr >= 0);
         let iptr: isize = *mem.get(ptr as usize).ok_or(Error::MemoryError(ptr))? as isize;
         let value = *mem.get(iptr as usize).ok_or(Error::MemoryError(ptr))?;
-        println!("IND LD @{} {}", iptr, value);
+        debug!("IND LD @{} {}", iptr, value);
         Ok(value)
     }
 
@@ -496,7 +496,7 @@ pub mod indirect {
         assert!(ptr >= 0);
         let iptr = *mem.get(ptr as usize).ok_or(Error::MemoryError(ptr))? as isize;
         *mem.get_mut(iptr as usize).ok_or(Error::MemoryError(ptr))? = value;
-        println!("IND STO @{} {}", iptr, value);
+        debug!("IND STO @{} {}", iptr, value);
         Ok(())
     }
 

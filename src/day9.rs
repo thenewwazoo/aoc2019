@@ -130,7 +130,7 @@ pub mod op {
             let adj = self.0(ip + 1, mem, *rel_base)?;
             //let adj = *mem.get((ip + 1) as usize).ok_or(Error::MemoryError(ip+1))?;
             let nrel_base = *rel_base + adj as isize;
-            println!("MOVREL {} + {} = {}", rel_base, adj, nrel_base);
+            debug!("MOVREL {} + {} = {}", rel_base, adj, nrel_base);
             *rel_base = nrel_base;
             Ok(MoveRel::width() as isize)
         }

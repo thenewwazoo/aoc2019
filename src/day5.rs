@@ -71,7 +71,7 @@ pub mod op {
             rel_base: &mut isize,
         ) -> Result<isize, Error> {
             let result = read::<i64>("INPUT: ")?;
-            println!("STDIN {}", result);
+            debug!("STDIN {}", result);
             self.0(ip + 1, mem, result, *rel_base)?;
             Ok(Input::width() as isize)
         }
@@ -106,7 +106,7 @@ pub mod op {
             _: &mut Option<Sender<i64>>,
             rel_base: &mut isize,
         ) -> Result<isize, Error> {
-            println!("OUTPUT: {}", self.0(ip + 1, mem, *rel_base)?);
+            debug!("OUTPUT: {}", self.0(ip + 1, mem, *rel_base)?);
             Ok(Output::width() as isize)
         }
 
@@ -146,10 +146,10 @@ pub mod op {
                 let value = self.0(ip + 1, mem, *rel_base)?;
                 if value != 0 {
                     let dest = self.1(ip + 2, mem, *rel_base)?;
-                    println!("JNZ {} != 0 -> {}", value, dest);
+                    debug!("JNZ {} != 0 -> {}", value, dest);
                     Ok(dest as isize - ip)
                 } else {
-                    println!("JNZ {} == 0", value);
+                    debug!("JNZ {} == 0", value);
                     Ok(Jnz::width() as isize)
                 }
             }
@@ -239,10 +239,10 @@ pub mod op {
                 let value = self.0(ip + 1, mem, *rel_base)?;
                 if value == 0 {
                     let dest = self.1(ip + 2, mem, *rel_base)?;
-                    println!("JZ {} == 0 -> {}", value, dest);
+                    debug!("JZ {} == 0 -> {}", value, dest);
                     Ok(dest as isize - ip)
                 } else {
-                    println!("JZ {} != 0", value);
+                    debug!("JZ {} != 0", value);
                     Ok(Jz::width() as isize)
                 }
             }
@@ -318,10 +318,10 @@ pub mod op {
                 let l = self.0(ip + 1, mem, *rel_base)?;
                 let r = self.1(ip + 2, mem, *rel_base)?;
                 if l < r {
-                    println!("{} < {}", l, r);
+                    debug!("{} < {}", l, r);
                     self.2(ip + 3, mem, 1, *rel_base)?;
                 } else {
-                    println!("{} > {}", l, r);
+                    debug!("{} > {}", l, r);
                     self.2(ip + 3, mem, 0, *rel_base)?;
                 }
                 Ok(Lt::width() as isize)
@@ -397,10 +397,10 @@ pub mod op {
                 let l = self.0(ip + 1, mem, *rel_base)?;
                 let r = self.1(ip + 2, mem, *rel_base)?;
                 if l == r {
-                    println!("{} == {}", l, r);
+                    debug!("{} == {}", l, r);
                     self.2(ip + 3, mem, 1, *rel_base)?;
                 } else {
-                    println!("{} != {}", l, r);
+                    debug!("{} != {}", l, r);
                     self.2(ip + 3, mem, 0, *rel_base)?;
                 }
                 Ok(Eq::width() as isize)
@@ -455,7 +455,7 @@ pub mod immediate {
     pub fn load(ptr: isize, mem: &[i64], _rel_base: isize) -> Result<i64, Error> {
         assert!(ptr >= 0);
         let value = *mem.get(ptr as usize).ok_or(Error::MemoryError(ptr))?;
-        println!("IMM LD ${}", value);
+        debug!("IMM LD ${}", value);
         Ok(value)
     }
 

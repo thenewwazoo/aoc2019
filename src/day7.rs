@@ -180,7 +180,9 @@ pub mod op {
             _: &mut Option<Sender<i64>>,
             rel_base: &mut isize,
         ) -> Result<isize, Error> {
+            info!("WIREDIN READ");
             let value = inp.as_ref().ok_or(Error::InputFailed)?.recv()?;
+            info!("WIREDIN GOT {}", value);
             self.0(ip + 1, mem, value, *rel_base)?;
             Ok(WiredInput::width() as isize)
         }
@@ -216,6 +218,7 @@ pub mod op {
             rel_base: &mut isize,
         ) -> Result<isize, Error> {
             let value = self.0(ip + 1, mem, *rel_base)?;
+            info!("WIREDOUT {}", value);
             out.as_ref().ok_or(Error::OutputFailed)?.send(value)?;
             Ok(WiredOutput::width() as isize)
         }

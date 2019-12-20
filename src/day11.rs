@@ -1,4 +1,5 @@
 use std::collections::HashMap;
+use std::fmt::Write;
 use std::sync::mpsc::channel;
 use std::thread::spawn;
 
@@ -20,10 +21,14 @@ impl Default for Color {
 
 impl std::fmt::Display for Color {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{}", match self {
-            Color::Black => " ",
-            Color::White => "#",
-        })
+        write!(
+            f,
+            "{}",
+            match self {
+                Color::Black => " ",
+                Color::White => "#",
+            }
+        )
     }
 }
 
@@ -117,25 +122,41 @@ pub fn run() -> Result<String, ()> {
 
 pub fn print_map<T>(map: &HashMap<Point, T>, inverted: bool)
 where
-    T: std::fmt::Debug + std::fmt::Display + Default + Copy
+    T: std::fmt::Debug + std::fmt::Display + Default + Copy,
 {
-    let (max_y, max_x) = (map.keys().map(|p| p.1).max().unwrap(), map.keys().map(|p| p.0).max().unwrap());
-    let (min_y, min_x) = (map.keys().map(|p| p.1).min().unwrap(), map.keys().map(|p| p.0).min().unwrap());
+    let mut buf = String::from("\x1B[2J\x1B[H");
+    //let mut buf = String::new();
 
-    println!("({}, {}) -> ({}, {})", min_x, min_y, max_x, max_y);
-    println!("{:?}", &map);
+    let (max_y, max_x) = (
+        map.keys().map(|p| p.1).max().unwrap(),
+        map.keys().map(|p| p.0).max().unwrap(),
+    );
+    let (min_y, min_x) = (
+        map.keys().map(|p| p.1).min().unwrap(),
+        map.keys().map(|p| p.0).min().unwrap(),
+    );
+
     for y in {
         if inverted {
             (min_y..=max_y).rev().collect::<Vec<i64>>().into_iter()
         } else {
             (min_y..=max_y).collect::<Vec<i64>>().into_iter()
         }
-    }{
+    } {
         for x in min_x..=max_x {
-            print!("{}", map.get(&(x, y)).cloned().or(Some(Default::default())).unwrap());
+            write!(
+                buf,
+                "{}",
+                map.get(&(x, y))
+                    .cloned()
+                    .or(Some(Default::default()))
+                    .unwrap()
+            )
+            .unwrap();
         }
-        println!("");
+        write!(buf, "\n").unwrap();
     }
+    print!("{}\n", buf);
 }
 
 const PROGMEM: &[i64] = &[

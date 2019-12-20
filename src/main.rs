@@ -1,7 +1,10 @@
 use aoc2019::*;
+use env_logger;
 use std::env::args;
 
 fn main() {
+    env_logger::init();
+
     println!("AOC 2019");
     match args().nth(1).expect("usage: aoc2019 <num>").as_str() {
         "1" => println!(

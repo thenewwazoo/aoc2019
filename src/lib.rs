@@ -1,3 +1,6 @@
+#[macro_use]
+extern crate log;
+
 /// AoC Day 1
 pub mod day1;
 
@@ -26,7 +29,7 @@ pub mod day8;
 pub mod day9;
 
 // AoC Day 10
-//pub mod day10;
+pub mod day10;
 
 /// AoC Day 11
 pub mod day11;
