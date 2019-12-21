@@ -7,7 +7,7 @@ use crate::day2::read_comma_file;
 use crate::day2::Error;
 use crate::day9::build_machine;
 
-type Map = HashMap<Point, Tile>;
+//type Map = HashMap<Point, Tile>;
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
 enum Tile {
@@ -62,6 +62,7 @@ enum HDir {
     S = 0,
 }
 
+/*
 impl HDir {
     pub fn flip(&mut self) {
         *self = match self {
@@ -71,6 +72,7 @@ impl HDir {
         };
     }
 }
+*/
 
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum VDir {
@@ -79,6 +81,7 @@ enum VDir {
     S = 0,
 }
 
+/*
 impl VDir {
     pub fn flip(&mut self) {
         *self = match self {
@@ -88,6 +91,7 @@ impl VDir {
         };
     }
 }
+*/
 
 #[derive(Clone)]
 struct Ball {
@@ -153,6 +157,7 @@ impl Ball {
         self.loc = l;
     }
 
+    /*
     pub fn predict_landing(&self, h: i64, screen: &Map) -> Option<i64> {
         if self.h == HDir::S || self.v == VDir::S {
             return None;
@@ -220,6 +225,7 @@ impl Ball {
             None
         }
     }
+    */
 }
 
 pub fn run() -> Result<String, Error> {
@@ -239,7 +245,7 @@ pub fn run() -> Result<String, Error> {
     let mut score;
     let mut ball: Option<Ball> = None;
     let mut paddle_loc = (21, 22);
-    let mut last_known_dest = 21;
+    // let mut last_known_dest = 21;
 
     loop {
         match (rx.recv(), rx.recv(), rx.recv()) {
